@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>VoiceOrb</title>
+<style>
+*{margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#090a0e}
+canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// ─── BG from URL ───
+(function(){var p=new URLSearchParams(location.search),b=p.get('bg');if(b)document.body.style.background='#'+b;})();
+
+var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+var W,H,cx,cy,dpr;
+
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth;H=window.innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cx=W/2;cy=H/2;
+}
+resize();
+window.addEventListener('resize',resize);
+
+// ─── State & Volume ───
+var curState='idle',curVol=0,smoothVol=0;
+var t=0;
+
+var STATES={
+  idle:{c1:'#00E5FF',c2:'#7B2FBE',glow:'rgba(0,229,255,0.15)',speed:0.6,baseR:0.32,pulseAmt:0.03,particles:false,volReact:false},
+  listening:{c1:'#00E5FF',c2:'#A855F7',glow:'rgba(0,229,255,0.25)',speed:1.0,baseR:0.34,pulseAmt:0.06,particles:false,volReact:true},
+  thinking:{c1:'#FFAA00',c2:'#FF6600',glow:'rgba(255,170,0,0.2)',speed:0.8,baseR:0.32,pulseAmt:0.04,particles:false,volReact:false},
+  speaking:{c1:'#A855F7',c2:'#00E5FF',glow:'rgba(167,85,247,0.25)',speed:1.4,baseR:0.35,pulseAmt:0.08,particles:true,volReact:true},
+  emergency:{c1:'#FF1111',c2:'#FF4444',glow:'rgba(255,17,17,0.3)',speed:2.0,baseR:0.34,pulseAmt:0.1,particles:true,volReact:true}
+};
+
+// ─── Simplex-like noise (fast 2D) ───
+function noise(x,y){
+  var ix=Math.floor(x),iy=Math.floor(y);
+  var fx=x-ix,fy=y-iy;
+  fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy);
+  var a=hash(ix,iy),b=hash(ix+1,iy),c=hash(ix,iy+1),d=hash(ix+1,iy+1);
+  return lerp(lerp(a,b,fx),lerp(c,d,fx),fy);
+}
+function hash(x,y){var n=x*374761393+y*668265263;n=(n^(n>>13))*1274126177;return(n^(n>>16))/2147483648;}
+function lerp(a,b,t){return a+(b-a)*t;}
+
+// ─── Particles ───
+var particles=[];
+function spawnParticle(x,y,color){
+  var angle=Math.random()*Math.PI*2;
+  var speed=0.3+Math.random()*1.2;
+  particles.push({
+    x:x,y:y,
+    vx:Math.cos(angle)*speed,vy:Math.sin(angle)*speed-0.3,
+    life:1,decay:0.008+Math.random()*0.012,
+    r:1+Math.random()*2,color:color
+  });
+}
+
+// ─── Parse color ───
+function parseColor(hex){
+  return{r:parseInt(hex.slice(1,3),16),g:parseInt(hex.slice(3,5),16),b:parseInt(hex.slice(5,7),16)};
+}
+function mixColor(c1,c2,t){
+  return{r:Math.round(c1.r+(c2.r-c1.r)*t),g:Math.round(c1.g+(c2.g-c1.g)*t),b:Math.round(c1.b+(c2.b-c1.b)*t)};
+}
+
+// ─── Draw the orb ───
+function drawOrb(s,time){
+  var vol=smoothVol;
+  var baseR=Math.min(W,H)*s.baseR;
+
+  // Pulse
+  var pulse;
+  if(s.volReact){
+    pulse=1+s.pulseAmt*0.3+vol*s.pulseAmt*3;
+  } else {
+    pulse=1+s.pulseAmt*Math.sin(time*1.5);
+  }
+  var R=baseR*pulse;
+
+  var c1=parseColor(s.c1),c2=parseColor(s.c2);
+
+  // ─── Outer glow ───
+  var glowR=R*2.2;
+  var grd=ctx.createRadialGradient(cx,cy,R*0.3,cx,cy,glowR);
+  grd.addColorStop(0,s.glow);
+  grd.addColorStop(0.5,s.glow.replace(/[\d.]+\)$/,'0.06)'));
+  grd.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=grd;
+  ctx.fillRect(0,0,W,H);
+
+  // ─── Draw organic sphere layers ───
+  // We draw multiple circles at slightly offset positions with noise-based displacement
+  var layers=12;
+  for(var i=layers;i>=0;i--){
+    var frac=i/layers; // 1=outermost, 0=center
+    var layerR=R*(0.3+0.7*frac);
+
+    // Noise-based displacement for organic feel
+    var nScale=1.5;
+    var nx=noise(time*0.5+frac*3,frac*5)*2-1;
+    var ny=noise(frac*5,time*0.5+frac*3)*2-1;
+    var displaceAmt=R*0.08*(s.volReact?1+vol*2:1)*frac;
+    var lx=cx+nx*displaceAmt;
+    var ly=cy+ny*displaceAmt;
+
+    // Color: outer=c1, inner=c2 with gradient
+    var mc=mixColor(c1,c2,frac*0.7);
+    var alpha=frac<0.3?(0.6+0.4*(1-frac/0.3)):(0.15+0.15*frac);
+
+    // Radial gradient for 3D lighting
+    var lightX=lx-layerR*0.3;
+    var lightY=ly-layerR*0.3;
+    var g=ctx.createRadialGradient(lightX,lightY,layerR*0.05,lx,ly,layerR);
+    g.addColorStop(0,'rgba('+Math.min(255,mc.r+80)+','+Math.min(255,mc.g+80)+','+Math.min(255,mc.b+80)+','+alpha+')');
+    g.addColorStop(0.4,'rgba('+mc.r+','+mc.g+','+mc.b+','+(alpha*0.8)+')');
+    g.addColorStop(1,'rgba('+Math.max(0,mc.r-40)+','+Math.max(0,mc.g-40)+','+Math.max(0,mc.b-40)+',0)');
+
+    ctx.beginPath();
+    ctx.arc(lx,ly,layerR,0,Math.PI*2);
+    ctx.fillStyle=g;
+    ctx.fill();
+  }
+
+  // ─── Specular highlight (top-left) ───
+  var specR=R*0.6;
+  var specX=cx-R*0.25;
+  var specY=cy-R*0.25;
+  var spec=ctx.createRadialGradient(specX,specY,0,specX,specY,specR);
+  spec.addColorStop(0,'rgba(255,255,255,0.25)');
+  spec.addColorStop(0.3,'rgba(255,255,255,0.08)');
+  spec.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.beginPath();
+  ctx.arc(specX,specY,specR,0,Math.PI*2);
+  ctx.fillStyle=spec;
+  ctx.fill();
+
+  // ─── Inner core glow ───
+  var coreR=R*0.35;
+  var core=ctx.createRadialGradient(cx,cy,0,cx,cy,coreR);
+  core.addColorStop(0,'rgba(255,255,255,0.2)');
+  core.addColorStop(0.5,'rgba('+c2.r+','+c2.g+','+c2.b+',0.15)');
+  core.addColorStop(1,'rgba('+c2.r+','+c2.g+','+c2.b+',0)');
+  ctx.beginPath();
+  ctx.arc(cx,cy,coreR,0,Math.PI*2);
+  ctx.fillStyle=core;
+  ctx.fill();
+
+  // ─── Edge rim light ───
+  var rimG=ctx.createRadialGradient(cx,cy,R*0.85,cx,cy,R*1.05);
+  rimG.addColorStop(0,'rgba('+c1.r+','+c1.g+','+c1.b+',0)');
+  rimG.addColorStop(0.5,'rgba('+c1.r+','+c1.g+','+c1.b+',0.12)');
+  rimG.addColorStop(1,'rgba('+c1.r+','+c1.g+','+c1.b+',0)');
+  ctx.beginPath();
+  ctx.arc(cx,cy,R*1.05,0,Math.PI*2);
+  ctx.fillStyle=rimG;
+  ctx.fill();
+
+  // ─── Floating light wisps orbiting the sphere ───
+  var wispCount=5;
+  for(var w=0;w<wispCount;w++){
+    var wa=time*0.4*(w%2===0?1:-1)+w*(Math.PI*2/wispCount);
+    var wr=R*(1.05+0.15*Math.sin(time*0.7+w*2));
+    var wx=cx+Math.cos(wa)*wr;
+    var wy=cy+Math.sin(wa)*wr*0.6; // elliptical
+    var wSize=3+2*Math.sin(time+w);
+    var wAlpha=0.3+0.2*Math.sin(time*1.3+w);
+    var wc=w%2===0?c1:c2;
+    ctx.beginPath();
+    ctx.arc(wx,wy,wSize,0,Math.PI*2);
+    ctx.fillStyle='rgba('+wc.r+','+wc.g+','+wc.b+','+wAlpha+')';
+    ctx.fill();
+    // tiny glow
+    ctx.beginPath();
+    ctx.arc(wx,wy,wSize*3,0,Math.PI*2);
+    var wg=ctx.createRadialGradient(wx,wy,0,wx,wy,wSize*3);
+    wg.addColorStop(0,'rgba('+wc.r+','+wc.g+','+wc.b+',0.1)');
+    wg.addColorStop(1,'rgba('+wc.r+','+wc.g+','+wc.b+',0)');
+    ctx.fillStyle=wg;
+    ctx.fill();
+  }
+
+  return R; // return radius for particle spawning
+}
+
+// ─── Main loop ───
+function animate(){
+  requestAnimationFrame(animate);
+  var s=STATES[curState];if(!s)s=STATES.idle;
+  t+=0.016*s.speed;
+
+  // Smooth volume
+  smoothVol+=(curVol-smoothVol)*0.15;
+
+  // Clear with bg color
+  var bgStyle=document.body.style.background||'#090a0e';
+  ctx.fillStyle=bgStyle;
+  ctx.fillRect(0,0,W,H);
+
+  // Draw orb
+  var R=drawOrb(s,t);
+
+  // Particles
+  if(s.particles&&(smoothVol>0.08||!s.volReact)){
+    var count=Math.floor(1+smoothVol*4);
+    var c1p=parseColor(s.c1),c2p=parseColor(s.c2);
+    for(var i=0;i<count;i++){
+      var angle=Math.random()*Math.PI*2;
+      var dist=R*(0.9+Math.random()*0.3);
+      var px=cx+Math.cos(angle)*dist;
+      var py=cy+Math.sin(angle)*dist;
+      var pc=Math.random()>0.5?s.c1:s.c2;
+      spawnParticle(px,py,pc);
+    }
+  }
+
+  // Draw particles
+  for(var i=particles.length-1;i>=0;i--){
+    var p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy-=0.01;p.life-=p.decay;
+    if(p.life<=0){particles.splice(i,1);continue;}
+    var pc=parseColor(p.color);
+    ctx.globalAlpha=p.life*0.6;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r*p.life,0,Math.PI*2);
+    ctx.fillStyle='rgb('+pc.r+','+pc.g+','+pc.b+')';
+    ctx.fill();
+    // tiny glow
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r*p.life*3,0,Math.PI*2);
+    var pg=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*p.life*3);
+    pg.addColorStop(0,'rgba('+pc.r+','+pc.g+','+pc.b+','+(p.life*0.15)+')');
+    pg.addColorStop(1,'rgba('+pc.r+','+pc.g+','+pc.b+',0)');
+    ctx.fillStyle=pg;
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+// ─── Android hooks ───
+window.updateState=function(name){
+  var c=name.toLowerCase();
+  if(c==='processing')c='thinking';
+  if(c==='talking')c='speaking';
+  if(!STATES[c]||c===curState)return;
+  curState=c;
+  console.log('VoiceOrb state -> '+c);
+};
+window.setVolume=function(v){curVol=Math.max(0,Math.min(1,v));};
+
+animate();
+console.log('VoiceOrb initialized (Canvas2D 3D bubble)');
+</script>
+</body>
+</html>

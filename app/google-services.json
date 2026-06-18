@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "67694309709",
+    "project_id": "drishti-eab26",
+    "storage_bucket": "drishti-eab26.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:67694309709:android:cf9f243e2514f68624c704",
+        "android_client_info": {
+          "package_name": "com.drishti"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "67694309709-7di1q3co5gopfc3dl2gnhh4ttp0vr0kp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.drishti",
+            "certificate_hash": "fa3ab5d87f9052ffdbb91342e3ee07faa5a1f2ba"
+          }
+        },
+        {
+          "client_id": "67694309709-b31i47u1v8ctq675ghd9qomm289kbadu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyFakeKeyForCompilingDrishtiVocalMapClient"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "67694309709-b31i47u1v8ctq675ghd9qomm289kbadu.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

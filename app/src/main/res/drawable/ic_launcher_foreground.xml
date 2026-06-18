@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- SUBTLE SHADOWS UNDER LOGO FOR 3D DEPTH -->
+    <!-- Dots Shadow -->
+    <path android:fillColor="#33000000" android:pathData="M 40,43.5 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <path android:fillColor="#33000000" android:pathData="M 40,51.5 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <path android:fillColor="#33000000" android:pathData="M 40,59.5 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <path android:fillColor="#33000000" android:pathData="M 40,67.5 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+
+    <!-- D curve Shadow -->
+    <path
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#33000000"
+        android:pathData="M 49,43 L 58,43 A 12,12 0 0 1 70,55 A 12,12 0 0 1 58,67 L 49,67" />
+
+    <!-- CONCENTRIC SONAR WAVES INSIDE THE D -->
+    <path
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeColor="#FF4081"
+        android:pathData="M 47,50.5 A 4,4 0 0 1 47,57.5" />
+    <path
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeColor="#D500F9"
+        android:pathData="M 48.5,47.9 A 7,7 0 0 1 48.5,60.1" />
+    <path
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeColor="#B388FF"
+        android:pathData="M 50,45.3 A 10,10 0 0 1 50,62.7" />
+
+    <!-- MAIN LOGO ELEMENTS -->
+    <!-- Dot 1: Cyan/Light Blue -->
+    <path android:fillColor="#00E5FF" android:pathData="M 40,42 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <!-- Dot 2: Purple -->
+    <path android:fillColor="#B388FF" android:pathData="M 40,50 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <!-- Dot 3: Pink/Magenta -->
+    <path android:fillColor="#FF4081" android:pathData="M 40,58 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+    <!-- Dot 4: Yellow/Orange -->
+    <path android:fillColor="#FFD740" android:pathData="M 40,66 m -3,0 a 3,3 0 1,1 6,0 a 3,3 0 1,1 -6,0" />
+
+    <!-- Glowing curved bar of the D (Linear Gradient from cyan-blue to pink-magenta) -->
+    <path
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 49,42 L 58,42 A 12,12 0 0 1 70,54 A 12,12 0 0 1 58,66 L 49,66">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="49"
+                android:startY="42"
+                android:endX="70"
+                android:endY="66"
+                android:type="linear">
+                <item android:color="#00E5FF" android:offset="0.0" />
+                <item android:color="#2196F3" android:offset="0.4" />
+                <item android:color="#FF4081" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+</vector>

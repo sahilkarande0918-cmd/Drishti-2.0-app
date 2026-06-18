@@ -1,0 +1,6 @@
+{
+  "name": "Drishti",
+  "description": "An AI-powered voice-controlled assistant for visually impaired users offering real-time descriptions, custom navigation, and safety monitoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
