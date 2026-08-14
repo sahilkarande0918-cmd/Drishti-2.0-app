@@ -4,6 +4,23 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 // ==========================================
+// MODEL NAMES
+// ==========================================
+// Kept in one place: providers retire model ids, and a stale id fails at runtime
+// as a 404 that is easy to mistake for an exhausted API key.
+object DrishtiModels {
+    // Verified available on the project's Gemini key. Handles both text and vision.
+    const val GEMINI_PRIMARY = "gemini-2.5-flash"
+    // "latest" alias survives version retirements.
+    const val GEMINI_FALLBACK = "gemini-flash-latest"
+    const val GROQ_TEXT = "llama-3.3-70b-versatile"
+    const val GROQ_TEXT_FALLBACK = "llama-3.1-8b-instant"
+    // Groq vision (llama-4-scout) was decommissioned and no vision model is
+    // available on the current Groq plan, so Gemini is the vision path.
+    const val GROQ_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"
+}
+
+// ==========================================
 // GEMINI API MODELS
 // ==========================================
 
@@ -37,7 +54,15 @@ data class GenerationConfig(
     @Json(name = "temperature") val temperature: Float? = null,
     @Json(name = "topP") val topP: Float? = null,
     @Json(name = "topK") val topK: Int? = null,
-    @Json(name = "maxOutputTokens") val maxOutputTokens: Int? = null
+    @Json(name = "maxOutputTokens") val maxOutputTokens: Int? = null,
+    @Json(name = "thinkingConfig") val thinkingConfig: ThinkingConfig? = null
+)
+
+// Gemini 2.5+ models "think" before answering, which adds seconds of latency and
+// burns tokens. A blind user needs the answer immediately, so we disable it.
+@JsonClass(generateAdapter = true)
+data class ThinkingConfig(
+    @Json(name = "thinkingBudget") val thinkingBudget: Int = 0
 )
 
 @JsonClass(generateAdapter = true)
@@ -108,7 +133,7 @@ data class OsrmManeuver(
 
 @JsonClass(generateAdapter = true)
 data class GroqChatRequest(
-    @Json(name = "model") val model: String = "llama-3.3-70b-versatile",
+    @Json(name = "model") val model: String = DrishtiModels.GROQ_TEXT,
     @Json(name = "messages") val messages: List<GroqMessage>,
     @Json(name = "temperature") val temperature: Double = 0.7
 )
@@ -187,7 +212,7 @@ data class SarvamTtsResponse(
 
 @JsonClass(generateAdapter = true)
 data class GroqVisionChatRequest(
-    @Json(name = "model") val model: String = "meta-llama/llama-4-scout-17b-16e-instruct",
+    @Json(name = "model") val model: String = DrishtiModels.GROQ_VISION,
     @Json(name = "messages") val messages: List<GroqVisionMessage>,
     @Json(name = "temperature") val temperature: Double = 0.7
 )

@@ -347,6 +347,12 @@ class DrishtiViewModel(
     var ttsLanguage by mutableStateOf("en-IN")
         private set
 
+    // Cleared for the session once Sarvam rejects us for credits/auth, so Hindi and
+    // Marathi speech falls straight through to Android TTS instead of stalling on a
+    // request that cannot succeed. Restored when the user saves a new Sarvam key.
+    @Volatile
+    private var sarvamEnabled = true
+
     // Manual gender override for how Drishti addresses the user ("" = auto-detect from name,
     // "male", or "female"). Controls friendly terms (behen/didi/tai vs bro/bhava) and the
     // Marathi interjection (female "अगं" vs male "अरे").
@@ -385,6 +391,8 @@ class DrishtiViewModel(
         val trimmed = key.trim()
         prefs.edit().putString("sarvam_api_key", trimmed).apply()
         sarvamApiKey = trimmed
+        // A fresh key deserves a fresh chance, even if the previous one ran out.
+        sarvamEnabled = true
     }
 
     fun changeTtsLanguage(languageCode: String) {
@@ -710,7 +718,7 @@ class DrishtiViewModel(
             textToSpeak = injectFriendlyTag(textToSpeak, ttsLanguage, isMale)
 
             // Use Pooja voice (Sarvam API) ONLY for Hindi and Marathi
-            if (ttsLanguage != "en-IN" && sarvamApiKey.isNotBlank() && sarvamApiKey != "MY_SARVAM_API_KEY") {
+            if (ttsLanguage != "en-IN" && sarvamEnabled && sarvamApiKey.isNotBlank() && sarvamApiKey != "MY_SARVAM_API_KEY") {
                 try {
                     val cachedBase64 = getCachedAudio(textToSpeak, ttsLanguage)
                     if (!cachedBase64.isNullOrBlank()) {
@@ -735,8 +743,18 @@ class DrishtiViewModel(
                         return
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
-                    Log.e("DrishtiViewModel", "Sarvam TTS failed, falling back to Android TTS: ${e.localizedMessage}")
+                    // A key with no credits fails identically on every sentence. Retrying
+                    // it would add a multi-second stall before each utterance, so stop
+                    // using Sarvam for this session and let Android TTS handle the voice.
+                    if (DrishtiRepository.isQuotaFailure(e) ||
+                        (e as? retrofit2.HttpException)?.code() == 401 ||
+                        (e as? retrofit2.HttpException)?.code() == 403
+                    ) {
+                        sarvamEnabled = false
+                        Log.w("DrishtiViewModel", "Sarvam TTS unavailable (${DrishtiRepository.describeApiFailure(e)}); using Android TTS for the rest of this session.")
+                    } else {
+                        Log.e("DrishtiViewModel", "Sarvam TTS failed, falling back to Android TTS: ${e.localizedMessage}")
+                    }
                 }
             }
 
@@ -4250,7 +4268,10 @@ class DrishtiViewModel(
                 val settings = userSettings.value
                 val isSent = if (settings?.smtpEnabled == true && settings.smtpEmail.isNotBlank()) {
                     Log.d("DrishtiViewModel", "Sending SOS email via Custom SMTP host ${settings.smtpHost}...")
-                    try {
+                    // Must honour sendEmail's return value: discarding it reported every
+                    // SOS as delivered even when SMTP auth failed, so the guardian was
+                    // never alerted and the intent-mail fallback never ran.
+                    val smtpOk = try {
                         com.example.util.SmtpSender.sendEmail(
                             host = settings.smtpHost,
                             port = settings.smtpPort,
@@ -4260,10 +4281,23 @@ class DrishtiViewModel(
                             subject = subject,
                             body = bodyContent
                         )
-                        true
                     } catch (e: Exception) {
                         e.printStackTrace()
                         false
+                    }
+                    if (!smtpOk) {
+                        // Custom SMTP is misconfigured or unreachable; still try the
+                        // hosted path before falling back to opening a mail app.
+                        Log.w("DrishtiViewModel", "Custom SMTP failed; retrying SOS via FormSubmit.")
+                        try {
+                            val response = DrishtiApiClient.formSubmitService.sendEmergencyEmail(guardianEmail, payload)
+                            response.isSuccessful && response.body()?.success == "true"
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            false
+                        }
+                    } else {
+                        true
                     }
                 } else {
                     Log.d("DrishtiViewModel", "Sending background SOS email via FormSubmit...")

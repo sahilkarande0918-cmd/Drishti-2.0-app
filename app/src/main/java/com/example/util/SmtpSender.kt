@@ -85,17 +85,24 @@ object SmtpSender {
             sendCommand("DATA")
             readResponse() // 354 Start mail input
 
-            // 9. Send headers and body
-            val messageHeaders = """
-                From: $username
-                To: $to
-                Subject: $subject
-                Content-Type: text/plain; charset=UTF-8
-                
-                $body
-            """.trimIndent()
-            
-            sendCommand(messageHeaders)
+            // 9. Send headers and body.
+            // RFC 5321 requires CRLF between lines; a bare LF makes stricter servers
+            // (Gmail among them) reject or mangle the alert. Body lines starting with
+            // "." must also be escaped, or the message terminates early and the
+            // guardian receives a truncated emergency alert.
+            val messageLines = buildList {
+                add("From: $username")
+                add("To: $to")
+                add("Subject: $subject")
+                add("Content-Type: text/plain; charset=UTF-8")
+                add("")
+                addAll(body.replace("\r\n", "\n").split("\n"))
+            }
+            val messageData = messageLines.joinToString("\r\n") { line ->
+                if (line.startsWith(".")) ".$line" else line
+            }
+
+            sendCommand(messageData)
             sendCommand(".")
             val sendRes = readResponse()
             

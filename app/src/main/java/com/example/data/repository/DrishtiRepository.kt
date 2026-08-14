@@ -24,6 +24,53 @@ class DrishtiRepository(
     private val osrmService: OsrmService
 ) {
     private var lastRequestTime = 0L
+
+    // Set to false permanently once Groq reports its vision model is gone, so that
+    // camera features do not retry a call that can never succeed.
+    @Volatile
+    private var groqVisionAvailable = true
+
+    companion object {
+        /**
+         * A retired model id comes back as a 404/400 "model not found", which looks
+         * nothing like an exhausted key but breaks the feature just as completely.
+         */
+        fun isModelUnavailable(e: Exception): Boolean {
+            val http = e as? retrofit2.HttpException
+            val body = http?.response()?.errorBody()?.string().orEmpty()
+            val text = (body + " " + (e.message ?: "")).lowercase()
+            return text.contains("model_not_found") ||
+                text.contains("does not exist") ||
+                text.contains("is not found for api version") ||
+                text.contains("not supported for generatecontent") ||
+                text.contains("model_decommissioned")
+        }
+
+        /** True when the provider rejected the call for billing/quota reasons. */
+        fun isQuotaFailure(e: Exception): Boolean {
+            val http = e as? retrofit2.HttpException
+            if (http?.code() == 429 || http?.code() == 402) return true
+            val body = http?.response()?.errorBody()?.string().orEmpty()
+            val text = (body + " " + (e.message ?: "")).lowercase()
+            return text.contains("insufficient_quota") ||
+                text.contains("no credits") ||
+                text.contains("quota") ||
+                text.contains("rate limit") ||
+                text.contains("resource_exhausted")
+        }
+
+        /** Human-readable cause for logs, distinguishing the failure modes. */
+        fun describeApiFailure(e: Exception): String {
+            val code = (e as? retrofit2.HttpException)?.code()
+            val kind = when {
+                isModelUnavailable(e) -> "MODEL UNAVAILABLE (retired/renamed model id)"
+                isQuotaFailure(e) -> "QUOTA/CREDITS EXHAUSTED"
+                code == 401 || code == 403 -> "AUTH (invalid or revoked API key)"
+                else -> "NETWORK/OTHER"
+            }
+            return "$kind [http=${code ?: "n/a"}] ${e.localizedMessage}"
+        }
+    }
     // Database flows
     val user: Flow<UserEntity?> = userDao.getUser()
     val guardian: Flow<GuardianEntity?> = guardianDao.getGuardian()
@@ -411,8 +458,36 @@ class DrishtiRepository(
             - Keep the output extremely brief (under 30 words) and casual.
         """.trimIndent()
 
-        // 1. Try Groq Vision (Primary - Vision Features Only)
-        if (groqKey.isNotBlank() && groqKey != "MY_GROQ_API_KEY") {
+        // 1. Try Gemini Vision (primary). Verified working on the project's key, and
+        // unlike Groq it is actually available for vision on the current plan.
+        if (geminiKey.isNotBlank() && geminiKey != "MY_GEMINI_API_KEY") {
+            val partText = Part(text = systemPrompt)
+            val partImage = Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64Data))
+            val content = Content(parts = listOf(partText, partImage))
+            val request = GenerateContentRequest(
+                contents = listOf(content),
+                generationConfig = GenerationConfig(
+                    temperature = 0.7f,
+                    thinkingConfig = ThinkingConfig(thinkingBudget = 0)
+                )
+            )
+            for (model in listOf(DrishtiModels.GEMINI_PRIMARY, DrishtiModels.GEMINI_FALLBACK)) {
+                try {
+                    val response = geminiService.generateContent(model, geminiKey, request)
+                    val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (!result.isNullOrBlank()) {
+                        return@withContext result
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("DrishtiRepository", "Gemini vision ($model) failed: ${describeApiFailure(e)}")
+                }
+            }
+        }
+
+        // 2. Try Groq Vision (secondary). Disabled for the rest of the session once
+        // Groq reports the vision model is unavailable, so we stop paying a wasted
+        // round-trip on every single camera frame.
+        if (groqVisionAvailable && groqKey.isNotBlank() && groqKey != "MY_GROQ_API_KEY") {
             try {
                 val contentList = listOf(
                     GroqVisionContentPart(type = "text", text = systemPrompt),
@@ -422,7 +497,7 @@ class DrishtiRepository(
                     GroqVisionMessage(role = "user", content = contentList)
                 )
                 val request = GroqVisionChatRequest(
-                    model = "meta-llama/llama-4-scout-17b-16e-instruct",
+                    model = DrishtiModels.GROQ_VISION,
                     messages = messages,
                     temperature = 0.7
                 )
@@ -432,40 +507,11 @@ class DrishtiRepository(
                     return@withContext result
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
-                android.util.Log.e("DrishtiRepository", "Groq Vision failed, trying Gemini: ${e.localizedMessage}")
-            }
-        }
-
-        // 2. Try Gemini Vision (Fallback)
-        if (geminiKey.isNotBlank() && geminiKey != "MY_GEMINI_API_KEY") {
-            val partText = Part(text = systemPrompt)
-            val partImage = Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64Data))
-            val content = Content(parts = listOf(partText, partImage))
-            val request = GenerateContentRequest(
-                contents = listOf(content),
-                generationConfig = GenerationConfig(temperature = 0.7f)
-            )
-            // Try Gemini 2.5 Flash first
-            try {
-                val response = geminiService.generateContent("gemini-2.5-flash", geminiKey, request)
-                val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                if (!result.isNullOrBlank()) {
-                    return@withContext result
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                android.util.Log.e("DrishtiRepository", "Gemini 2.5 Flash failed, trying Gemini 1.5 Flash: ${e.localizedMessage}")
-                // Fallback to Gemini 1.5 Flash (much higher free tier quota limit: 15 RPM, 1500 RPD)
-                try {
-                    val response = geminiService.generateContent("gemini-1.5-flash", geminiKey, request)
-                    val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                    if (!result.isNullOrBlank()) {
-                        return@withContext result
-                    }
-                } catch (e2: Exception) {
-                    e2.printStackTrace()
-                    android.util.Log.e("DrishtiRepository", "Gemini 1.5 Flash fallback also failed: ${e2.localizedMessage}")
+                if (isModelUnavailable(e)) {
+                    groqVisionAvailable = false
+                    android.util.Log.w("DrishtiRepository", "Groq vision model unavailable on this plan; disabling for this session.")
+                } else {
+                    android.util.Log.e("DrishtiRepository", "Groq Vision failed: ${describeApiFailure(e)}")
                 }
             }
         }
@@ -474,27 +520,30 @@ class DrishtiRepository(
         return@withContext getOfflineDescription(voiceIntent, userName, isMale)
     }
 
+    /**
+     * Spoken when no vision model could be reached.
+     *
+     * This must never invent what the camera saw. Earlier versions returned
+     * confident placeholder facts ("you are holding a 500 rupee note", "no hazards
+     * in your track"), which a blind user cannot cross-check and would act on --
+     * handing over the wrong note, or stepping into traffic that was never ruled
+     * out. Saying nothing useful is safe; saying something false is not.
+     */
     private fun getOfflineDescription(voiceIntent: String, userName: String, isMale: Boolean): String {
-        return "Using offline description: " + when {
-            voiceIntent.contains("currency", ignoreCase = true) || voiceIntent.contains("rupee", ignoreCase = true) || voiceIntent.contains("cash", ignoreCase = true) -> {
-                "You are holding a crisp 500 Indian Rupee note with Mahatma Gandhi watermark."
-            }
-            voiceIntent.contains("emotion", ignoreCase = true) || voiceIntent.contains("expression", ignoreCase = true) || voiceIntent.contains("face", ignoreCase = true) -> {
-                "There is a person standing in front of you. They have a warm smile, looking welcoming."
-            }
-            voiceIntent.contains("read", ignoreCase = true) || voiceIntent.contains("sign", ignoreCase = true) || voiceIntent.contains("text", ignoreCase = true) -> {
-                "The board in front of you reads: Caution: Mind the step descending in 0.5 meters."
-            }
-            voiceIntent.contains("hazard", ignoreCase = true) || voiceIntent.contains("obstacle", ignoreCase = true) || voiceIntent.contains("predict", ignoreCase = true) -> {
-                "A delivery bicycle is moving 1.5 meters on your left. Take a quick pause."
-            }
-            voiceIntent.contains("product", ignoreCase = true) || voiceIntent.contains("expiry", ignoreCase = true) || voiceIntent.contains("ingredients", ignoreCase = true) -> {
-                "Amul Salted Butter (100 grams). Recommended best before October 2026."
-            }
-            else -> {
-                "The path in front of you displays a clean walking line. No hazards detected in your immediate track."
-            }
+        val what = when {
+            voiceIntent.contains("currency", ignoreCase = true) || voiceIntent.contains("rupee", ignoreCase = true) || voiceIntent.contains("cash", ignoreCase = true) ->
+                "check that note"
+            voiceIntent.contains("emotion", ignoreCase = true) || voiceIntent.contains("expression", ignoreCase = true) || voiceIntent.contains("face", ignoreCase = true) ->
+                "see who is in front of you"
+            voiceIntent.contains("read", ignoreCase = true) || voiceIntent.contains("sign", ignoreCase = true) || voiceIntent.contains("text", ignoreCase = true) ->
+                "read that for you"
+            voiceIntent.contains("hazard", ignoreCase = true) || voiceIntent.contains("obstacle", ignoreCase = true) || voiceIntent.contains("predict", ignoreCase = true) ->
+                "check the path ahead"
+            voiceIntent.contains("product", ignoreCase = true) || voiceIntent.contains("expiry", ignoreCase = true) || voiceIntent.contains("ingredients", ignoreCase = true) ->
+                "read that packaging"
+            else -> "see your surroundings"
         }
+        return "I can't $what right now, my vision service isn't responding. Please stay where you are and try again in a moment."
     }
 
     suspend fun getGeminiTextResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {
@@ -556,11 +605,24 @@ class DrishtiRepository(
             val request = GenerateContentRequest(
                 contents = geminiContents,
                 systemInstruction = systemInstruction,
-                generationConfig = GenerationConfig(temperature = 0.7f)
+                generationConfig = GenerationConfig(
+                    temperature = 0.7f,
+                    thinkingConfig = ThinkingConfig(thinkingBudget = 0)
+                )
             )
 
-            val response = geminiService.generateContent("gemini-1.5-flash", apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "Gemini offered empty response."
+            var lastError: Exception? = null
+            for (model in listOf(DrishtiModels.GEMINI_PRIMARY, DrishtiModels.GEMINI_FALLBACK)) {
+                try {
+                    val response = geminiService.generateContent(model, apiKey, request)
+                    val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                    if (!text.isNullOrBlank()) return@withContext text
+                } catch (e: Exception) {
+                    lastError = e
+                    android.util.Log.e("DrishtiRepository", "Gemini text ($model) failed: ${describeApiFailure(e)}")
+                }
+            }
+            throw lastError ?: Exception("Gemini offered empty response.")
         } catch (e: Exception) {
             e.printStackTrace()
             throw e
@@ -609,13 +671,25 @@ class DrishtiRepository(
             }
 
             val systemMsg = GroqMessage(role = "system", content = friendlyInstructionText)
-            val response = DrishtiApiClient.groqService.chatCompletions(
-                "Bearer $apiKey",
-                GroqChatRequest(
-                    messages = listOf(systemMsg) + conversationHistory + GroqMessage(role = "user", content = prompt)
-                )
-            )
-            response.choices?.firstOrNull()?.message?.content ?: "Groq offered empty response."
+            val messages = listOf(systemMsg) + conversationHistory + GroqMessage(role = "user", content = prompt)
+
+            var lastError: Exception? = null
+            for (model in listOf(DrishtiModels.GROQ_TEXT, DrishtiModels.GROQ_TEXT_FALLBACK)) {
+                try {
+                    val response = DrishtiApiClient.groqService.chatCompletions(
+                        "Bearer $apiKey",
+                        GroqChatRequest(model = model, messages = messages)
+                    )
+                    val text = response.choices?.firstOrNull()?.message?.content
+                    if (!text.isNullOrBlank()) return@withContext text
+                } catch (e: Exception) {
+                    lastError = e
+                    android.util.Log.e("DrishtiRepository", "Groq text ($model) failed: ${describeApiFailure(e)}")
+                    // Only a dead model is worth retrying on another model.
+                    if (!isModelUnavailable(e)) throw e
+                }
+            }
+            throw lastError ?: Exception("Groq offered empty response.")
         } catch (e: Exception) {
             e.printStackTrace()
             throw e
