@@ -217,8 +217,8 @@ class MainActivity : ComponentActivity() {
             var activeRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
             fun startRecognizerSession(useGoogleService: Boolean) {
-                if (dViewModel.orbState != OrbState.LISTENING) {
-                    Log.d("MainActivity", "startRecognizerSession: Ignored because orbState is ${dViewModel.orbState}")
+                if (!dViewModel.isMicOn) {
+                    Log.d("MainActivity", "startRecognizerSession: ignored, mic latch is off")
                     return
                 }
                 try {
@@ -292,29 +292,35 @@ class MainActivity : ComponentActivity() {
                                 activeRecognizer = null
                             }
 
-                            if (useGoogleService && (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS || error == SpeechRecognizer.ERROR_CLIENT)) {
-                                Log.w("MainActivity", "Google voice service failed with error $error, retrying with system default recognizer")
-                                (context as? android.app.Activity)?.runOnUiThread {
-                                    startRecognizerSession(false)
+                            dViewModel.updateMicAmplitude(0.0f)
+
+                            when {
+                                useGoogleService && (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS || error == SpeechRecognizer.ERROR_CLIENT) -> {
+                                    Log.w("MainActivity", "Google voice service failed with error $error, retrying with system default recognizer")
+                                    (context as? android.app.Activity)?.runOnUiThread {
+                                        startRecognizerSession(false)
+                                    }
                                 }
-                            } else {
-                                (context as? android.app.Activity)?.runOnUiThread {
-                                    Toast.makeText(context, "Mic error: $message", Toast.LENGTH_SHORT).show()
+                                // Silence and no-match are normal in a latched mic — the user
+                                // simply has not spoken yet. Reopen quietly, no toast, no
+                                // dropping out of listening.
+                                error == SpeechRecognizer.ERROR_NO_MATCH ||
+                                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                                    dViewModel.onRecognizerSessionEnded()
                                 }
-                                dViewModel.cancelVoiceListening()
-                                dViewModel.updateMicAmplitude(0.0f)
+                                else -> {
+                                    if (!dViewModel.isMicOn) {
+                                        (context as? android.app.Activity)?.runOnUiThread {
+                                            Toast.makeText(context, "Mic error: $message", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    dViewModel.onRecognizerSessionEnded()
+                                }
                             }
                         }
 
                         override fun onResults(results: Bundle?) {
                             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            if (!matches.isNullOrEmpty()) {
-                                val speechText = matches[0]
-                                dViewModel.stopSpeaking()
-                                dViewModel.processSpeachTextCommand(speechText)
-                            } else {
-                                dViewModel.cancelVoiceListening()
-                            }
                             dViewModel.updateMicAmplitude(0.0f)
 
                             try {
@@ -323,21 +329,50 @@ class MainActivity : ComponentActivity() {
                             if (activeRecognizer == newRecognizer) {
                                 activeRecognizer = null
                             }
+
+                            val speechText = matches?.firstOrNull()?.trim()
+                            if (!speechText.isNullOrBlank()) {
+                                dViewModel.stopSpeaking()
+                                dViewModel.processSpeachTextCommand(speechText)
+                                // Reopen the mic straight away so the user can interrupt the
+                                // answer they are about to hear.
+                                dViewModel.onRecognizerSessionEnded()
+                            } else {
+                                dViewModel.cancelVoiceListening()
+                            }
                         }
 
-                        override fun onPartialResults(partialResults: Bundle?) {}
+                        override fun onPartialResults(partialResults: Bundle?) {
+                            // Barge-in: the moment real words are detected, cut Drishti off
+                            // so the user is never talking over a reply they no longer want.
+                            val partial = partialResults
+                                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                ?.firstOrNull()
+                                ?.trim()
+                            if (!partial.isNullOrBlank() && dViewModel.isSpeaking) {
+                                dViewModel.stopSpeaking()
+                            }
+                        }
 
                         override fun onEvent(eventType: Int, params: Bundle?) {}
                     })
 
-                    // Voice commands are always recognized in English. Output language is handled
-                    // separately by DrishtiViewModel.ttsLanguage for AI responses and TTS.
-                    val speechLanguage = "en-IN"
+                    // Listen in whatever language Drishti is currently speaking — Marathi by
+                    // default. This was pinned to en-IN, so Marathi speech was being decoded
+                    // by an English model and came back as garbage.
+                    val speechLanguage = dViewModel.ttsLanguage
                     val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguage)
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguage)
-                        putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, speechLanguage)
+                        // Accept English too, so an English word or command still lands while
+                        // Marathi stays primary.
+                        putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN"))
+                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                        // Cut the trailing silence the recogniser waits through before it
+                        // hands us the text; this is dead time the user feels as lag.
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
                     }
 
                     (context as? android.app.Activity)?.runOnUiThread {
@@ -361,8 +396,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            LaunchedEffect(dViewModel.orbState) {
-                if (dViewModel.orbState == OrbState.IDLE) {
+            // Tear the mic down only when the user actually turns the latch off — not on
+            // every transition through IDLE, which is what used to close it after each reply.
+            LaunchedEffect(dViewModel.isMicOn) {
+                if (!dViewModel.isMicOn) {
                     try {
                         activeRecognizer?.cancel()
                         activeRecognizer?.destroy()
@@ -371,6 +408,14 @@ class MainActivity : ComponentActivity() {
                         e.printStackTrace()
                     }
                     dViewModel.updateMicAmplitude(0.0f)
+                }
+            }
+
+            // Every bump of micSessionRequest opens a fresh recogniser session. This is what
+            // keeps a latched mic alive across results, no-matches and silence timeouts.
+            LaunchedEffect(dViewModel.micSessionRequest) {
+                if (dViewModel.micSessionRequest > 0 && dViewModel.isMicOn) {
+                    startRecognizerSession(true)
                 }
             }
 
@@ -388,11 +433,9 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(context, "Microphone access requested for Voice Commands.", Toast.LENGTH_LONG).show()
                     permissionsLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
                 } else {
-                    dViewModel.startListeningCommand()
-                    lifecycleScope.launch {
-                        delay(350)
-                        startRecognizerSession(true)
-                    }
+                    // Toggle the latch. startMic bumps micSessionRequest, which opens the
+                    // recogniser immediately — the old fixed 350ms wait is gone.
+                    dViewModel.toggleMic()
                 }
             }
 

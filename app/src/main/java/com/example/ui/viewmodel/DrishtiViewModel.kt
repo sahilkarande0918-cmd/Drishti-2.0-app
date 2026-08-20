@@ -71,6 +71,18 @@ enum class SpeechPriority {
     INFORMATION
 }
 
+/** Marathi is the primary language; English is the optional secondary. */
+const val DEFAULT_LANGUAGE = "mr-IN"
+
+private const val KEY_GREETED = "has_greeted_once"
+
+/** Spoken once, on first launch only, in the user's language. */
+private fun firstRunGreeting(name: String): String = when (DEFAULT_LANGUAGE) {
+    "mr-IN" -> "नमस्कार $name, मी दृष्टी. मी तुझ्यासोबतच आहे. काहीही विचार, नाहीतर बोलायचं असेल तरी बोल."
+    "hi-IN" -> "नमस्ते $name, मैं दृष्टि हूँ. मैं तुम्हारे साथ ही हूँ. कुछ भी पूछो, या बस बातें करनी हों तो भी बोलो."
+    else -> "Hi $name, I'm Drishti. I'm right here with you. Ask me anything, or just talk to me."
+}
+
 class DrishtiViewModel(
     application: Application,
     private val repository: DrishtiRepository
@@ -264,6 +276,17 @@ class DrishtiViewModel(
     var hasTriggeredArrivalGuidance by mutableStateOf(false)
     private var locationTrackingJob: kotlinx.coroutines.Job? = null
 
+    // The mic is a latch, not a push-to-talk button. Once the user turns it on (tap or
+    // double Volume-Down) it stays on across every utterance, answer and screen change
+    // until they turn it off the same way. MainActivity watches this to decide whether to
+    // restart the recogniser after each result, error or silence timeout.
+    var isMicOn by mutableStateOf(false)
+        private set
+
+    /** Bumped to ask MainActivity for a fresh recogniser session while [isMicOn]. */
+    var micSessionRequest by mutableStateOf(0)
+        private set
+
     var orbState by mutableStateOf(OrbState.IDLE)
         private set
 
@@ -344,7 +367,9 @@ class DrishtiViewModel(
         private set
     var sarvamApiKey by mutableStateOf("")
         private set
-    var ttsLanguage by mutableStateOf("en-IN")
+    // Marathi is Drishti's primary language: it is what the app starts in, listens in,
+    // and answers in. English is the optional secondary. Overwritten from prefs in init.
+    var ttsLanguage by mutableStateOf(DEFAULT_LANGUAGE)
         private set
 
     // Cleared for the session once Sarvam rejects us for credits/auth, so Hindi and
@@ -417,8 +442,10 @@ class DrishtiViewModel(
             BuildConfig.SARVAM_API_KEY
         } else savedSarvam
 
-        ttsLanguage = "en-IN"
-        prefs.edit().putString("tts_language", "en-IN").apply()
+        // Honour the user's saved choice. This used to hard-assign en-IN on every launch,
+        // which silently threw away whatever language they had picked.
+        ttsLanguage = prefs.getString("tts_language", DEFAULT_LANGUAGE).orEmpty()
+            .ifBlank { DEFAULT_LANGUAGE }
         tts = TextToSpeech(context, this)
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -534,10 +561,14 @@ class DrishtiViewModel(
             })
 
             isTtsInitialized = true
-            // Read welcome greeting on launch if user profile exists
+            // Introduce Drishti once, on the very first launch only. Hearing the same
+            // greeting on every app open is noise to someone who relies on audio.
             viewModelScope.launch {
-                userProfile.filterNotNull().firstOrNull()?.let {
-                    speak("Welcome, ${it.name}. Tap the centre orb to speak.")
+                if (!prefs.getBoolean(KEY_GREETED, false)) {
+                    userProfile.filterNotNull().firstOrNull()?.let {
+                        prefs.edit().putBoolean(KEY_GREETED, true).apply()
+                        speak(firstRunGreeting(it.name))
+                    }
                 }
             }
         } else {
@@ -669,20 +700,25 @@ class DrishtiViewModel(
 
         val job = viewModelScope.launch {
             try {
-                var translatedText = text
-                if (ttsLanguage != "en-IN" && (textHasEnglish(text) || !isDevanagari(text))) {
-                    translatedText = translateText(text, ttsLanguage)
-                }
+                // The AI is already instructed to answer in the active language, so its
+                // replies arrive in Devanagari and need no translation. Only genuinely
+                // English text (hardcoded UI strings) is worth a translation round-trip —
+                // the old check fired on any stray latin character, adding a full extra
+                // LLM call before nearly every spoken reply.
+                val translatedText =
+                    if (ttsLanguage != "en-IN" && needsTranslation(text)) translateText(text, ttsLanguage)
+                    else text
 
-                // Split text into individual sentences (supporting both English and Devanagari punctuation)
+                // Split into sentences so the first one starts playing immediately instead
+                // of waiting for the whole paragraph.
                 val sentences = translatedText.split(Regex("(?<=[.!?।])\\s+"))
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
 
-                for (sentence in sentences) {
+                sentences.forEachIndexed { index, sentence ->
                     speakSentence(sentence)
-                    // Add a small pause between sentences for clarity
-                    delay(400)
+                    // Just enough gap to hear the break; 400ms read as sluggish.
+                    if (index < sentences.lastIndex) delay(120)
                 }
             } finally {
                 // Done speaking this priority
@@ -708,6 +744,16 @@ class DrishtiViewModel(
 
     private fun textHasEnglish(text: String): Boolean {
         return text.any { it in 'a'..'z' || it in 'A'..'Z' }
+    }
+
+    /**
+     * True only when the text is substantially English prose. A Marathi reply that happens
+     * to contain "MIT" or "500" is already speakable and must not cost a translation call.
+     */
+    private fun needsTranslation(text: String): Boolean {
+        val latin = text.count { it in 'a'..'z' || it in 'A'..'Z' }
+        val devanagari = text.count { it.code in 0x0900..0x097F }
+        return latin > devanagari
     }
 
     private suspend fun speakSentence(sentence: String) {
@@ -1942,21 +1988,65 @@ class DrishtiViewModel(
     // VOICE SPEECH SYSTEM & fallbacks
     // ==========================================
 
-    fun startListeningCommand() {
-        triggerVibration(longArrayOf(0, 40, 50, 40))
-        orbState = OrbState.LISTENING
+    /** Tap on the orb or double Volume-Down: flips the mic latch on or off. */
+    fun toggleMic() {
+        if (isMicOn) stopMic() else startMic()
+    }
+
+    fun startMic() {
+        if (isMicOn) {
+            // Already listening; the user probably wants to cut Drishti off and talk now.
+            stopSpeaking()
+            orbState = OrbState.LISTENING
+            micSessionRequest++
+            return
+        }
+        isMicOn = true
         stopSpeaking()
+        orbState = OrbState.LISTENING
+        triggerVibration(longArrayOf(0, 40, 50, 40))
+        // Short, quiet cue. The old 180ms beep on STREAM_MUSIC delayed the first word
+        // and collided with the recogniser opening the mic.
+        playCue(ToneGenerator.TONE_PROP_BEEP, 90)
+        micSessionRequest++
+    }
+
+    fun stopMic() {
+        isMicOn = false
+        orbState = OrbState.IDLE
+        updateMicAmplitude(0.0f)
+        triggerVibration(longArrayOf(0, 30))
+        playCue(ToneGenerator.TONE_PROP_NACK, 90)
+    }
+
+    /**
+     * Called by MainActivity when a recogniser session ends for a reason that is not the
+     * user turning the mic off — a result, a no-match, or a silence timeout. While the
+     * latch is on we simply open a new session so the user never re-taps to be heard.
+     */
+    fun onRecognizerSessionEnded() {
+        if (!isMicOn) {
+            orbState = OrbState.IDLE
+            return
+        }
+        micSessionRequest++
+    }
+
+    private fun playCue(tone: Int, durationMs: Int) {
         try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 85)
-            toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 180)
+            val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70)
+            toneGen.startTone(tone, durationMs)
             viewModelScope.launch(Dispatchers.IO) {
-                delay(300)
+                delay((durationMs + 120).toLong())
                 toneGen.release()
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
+    // Kept for existing callers (volume key, orb tap) that meant "start talking to me".
+    fun startListeningCommand() = startMic()
 
     fun startLiveScanning() {
         if (isProactiveScanningEnabled) return
@@ -2630,7 +2720,8 @@ class DrishtiViewModel(
     }
 
     fun cancelVoiceListening() {
-        orbState = OrbState.IDLE
+        // A dud recognition must not silently close the mic the user latched open.
+        onRecognizerSessionEnded()
     }
 
     fun clearAutoAnalyzeIntent() {
