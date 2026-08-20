@@ -128,6 +128,16 @@ private const val KEY_PREFS_VERSION = "prefs_version"
  */
 private const val OBSTACLE_REPEAT_MS = 20_000L
 
+/** Only warn by touch when something is this close - a buzz that never stops is not a warning. */
+private const val PROXIMITY_WARN_METERS = 1.0f
+
+/**
+ * Gap between cloud vision scans. Sized for a ~15 request/minute free tier with headroom;
+ * the offline detector is what gives navigation its instant response, so slowing this down
+ * costs nothing a user can feel.
+ */
+private const val VISION_SCAN_INTERVAL_MS = 4_500L
+
 /**
  * Ways the vision layer says "nothing in your way", including the transliterated forms it
  * produces when told to answer only in Hindi or Marathi.
@@ -3188,7 +3198,11 @@ class DrishtiViewModel(
                     continue
                 }
                 lastProcessedStamp = stamp
-                val top = detector.detect(frame, ObstacleDetector.INDOOR_LABELS).firstOrNull()
+                val found = detector.detect(frame, ObstacleDetector.INDOOR_LABELS)
+                val top = found.firstOrNull()
+                if (found.isNotEmpty()) {
+                    Log.d("DrishtiNav", "indoor fast layer sees: " + found.joinToString { "${it.label}/${it.proximity}" })
+                }
                 if (!isIndoorNavActive) break
                 if (top != null) announceObstacle(top, indoor = true)
             }
@@ -3261,14 +3275,15 @@ class DrishtiViewModel(
                         addSceneToMemory(cleaned)
 
                         // One buzz, and only when contact is imminent.
-                        if (aboutToHit) {
-                            triggerVibration(400L)
-                            playObstacleSonarBeeps(dist ?: 0.8f)
-                        }
+                        warnProximity(dist)
                     }
                 }
 
-                delay(900) // small floor between scans so it stays responsive but not spammy
+                // Deep scans are paced for the provider's per-minute allowance, not for
+                // reaction time: at 900ms this loop issued roughly 60+ requests a minute
+                // against a ~15/min free tier and rate-limited itself into answering
+                // nothing at all. Reaction time is the offline fast layer's job.
+                delay(if (DrishtiRepository.visionThrottled()) 2_000L else VISION_SCAN_INTERVAL_MS)
             }
             orbState = OrbState.IDLE
         }
@@ -3369,15 +3384,22 @@ class DrishtiViewModel(
         val previous = announcedObstacles[obstacle.label]
         val newlyUrgent = urgent && previous?.wasUrgent != true
 
-        if (previous != null && !newlyUrgent && now - previous.lastSpokenAt < OBSTACLE_REPEAT_MS) return
+        if (previous != null && !newlyUrgent && now - previous.lastSpokenAt < OBSTACLE_REPEAT_MS) {
+            Log.d("DrishtiNav", "skip ${obstacle.label}: already announced ${(now - previous.lastSpokenAt) / 1000}s ago")
+            return
+        }
 
         // Never chop a sentence that is still being spoken. Only a thing about to be walked
         // into earns an interruption; anything else waits for the next frame.
-        if (isSpeaking && !newlyUrgent) return
+        if (isSpeaking && !newlyUrgent) {
+            Log.d("DrishtiNav", "skip ${obstacle.label}: still speaking")
+            return
+        }
 
         announcedObstacles[obstacle.label] = ObstacleAnnouncement(now, urgent)
         lastFastSpeakTime = now
         val sentence = buildFastObstacleSentence(obstacle)
+        Log.i("DrishtiNav", "announce ${obstacle.label} ${obstacle.direction} ${obstacle.proximity}: $sentence")
         viewModelScope.launch {
             if (indoor) indoorNavStatus = sentence
             else if (isSmartNavActive) smartNavStatus = sentence
@@ -3391,10 +3413,7 @@ class DrishtiViewModel(
 
             // One buzz, only when something is close enough to walk into. Vibrating on
             // every announcement made the phone shake continuously while walking.
-            if (newlyUrgent) {
-                triggerVibration(400L)
-                playObstacleSonarBeeps(0.8f)
-            }
+            if (newlyUrgent) warnProximity(0.8f)
         }
     }
 
@@ -3551,19 +3570,11 @@ class DrishtiViewModel(
                         }
                         speak(cleaned, SpeechPriority.OBSTACLE, bypassCooldown = true)
                         addSceneToMemory(cleaned)
-
-                        val dist = extractDistance(cleaned)
-                        if (dist != null) {
-                            when {
-                                dist <= 0.8f -> { triggerVibration(longArrayOf(0, 450, 105, 450)); playObstacleSonarBeeps(dist) }
-                                dist <= 1.5f -> { triggerVibration(250L); playObstacleSonarBeeps(dist) }
-                                dist <= 2.5f -> { triggerVibration(80L); playObstacleSonarBeeps(dist) }
-                            }
-                        }
+                        warnProximity(extractDistance(cleaned))
                     }
                 }
 
-                delay(2500) // deep scans are supplementary; keep API usage modest
+                delay(if (DrishtiRepository.visionThrottled()) 2_000L else VISION_SCAN_INTERVAL_MS)
             }
         }
     }
@@ -3739,15 +3750,7 @@ class DrishtiViewModel(
                             }
                             speak(body, SpeechPriority.OBSTACLE, bypassCooldown = true)
                             addSceneToMemory(body)
-
-                            val dist = extractDistance(body)
-                            if (dist != null) {
-                                when {
-                                    dist <= 0.8f -> { triggerVibration(longArrayOf(0, 450, 105, 450)); playObstacleSonarBeeps(dist) }
-                                    dist <= 1.5f -> { triggerVibration(250L); playObstacleSonarBeeps(dist) }
-                                    dist <= 2.5f -> { triggerVibration(80L); playObstacleSonarBeeps(dist) }
-                                }
-                            }
+                        warnProximity(extractDistance(body))
                         }
                     }
                 }
@@ -4019,23 +4022,7 @@ class DrishtiViewModel(
                     speak(alert, SpeechPriority.OBSTACLE, bypassCooldown = true)
                 }
 
-                val dist = extractDistance(alert)
-                if (dist != null) {
-                    when {
-                        dist <= 0.8f -> {
-                            triggerVibration(longArrayOf(0, 450, 105, 450))
-                            playObstacleSonarBeeps(dist)
-                        }
-                        dist <= 1.5f -> {
-                            triggerVibration(250L)
-                            playObstacleSonarBeeps(dist)
-                        }
-                        dist <= 2.5f -> {
-                            triggerVibration(80L)
-                            playObstacleSonarBeeps(dist)
-                        }
-                    }
-                }
+                warnProximity(extractDistance(alert))
                 addSceneToMemory(alert)
             } else {
                 isPathClearState = true
@@ -4197,6 +4184,19 @@ class DrishtiViewModel(
             triggerVibration(100L)
             speak("Emergency alert cancelled. Re entering standby.", SpeechPriority.EMERGENCY)
         }
+    }
+
+    /**
+     * One short buzz plus a sonar cue, and only when something is close enough to walk
+     * into. Every hazard announcement used to vibrate on a three-tier distance ladder, so
+     * the phone shook continuously the whole time the user was walking - which makes the
+     * buzz meaningless as a warning, because it is never absent.
+     */
+    private fun warnProximity(distanceMeters: Float?) {
+        val d = distanceMeters ?: return
+        if (d > PROXIMITY_WARN_METERS) return
+        triggerVibration(400L)
+        playObstacleSonarBeeps(d)
     }
 
     fun playObstacleSonarBeeps(distance: Float) {

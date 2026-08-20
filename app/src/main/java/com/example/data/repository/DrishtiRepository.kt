@@ -59,6 +59,42 @@ class DrishtiRepository(
                 text.contains("resource_exhausted")
         }
 
+        // ---- Vision quota circuit breaker -------------------------------------
+        // The navigation loops scan continuously, which can push well past a free
+        // tier's per-minute allowance. Once the provider starts answering 429 every
+        // further frame is wasted and keeps the key pinned at its limit, so vision
+        // pauses for a growing window and the offline detector carries navigation
+        // until it recovers.
+        @Volatile
+        private var visionBackoffUntil = 0L
+
+        @Volatile
+        private var quotaStrikes = 0
+
+        /** True while we are deliberately not calling the vision API. */
+        fun visionThrottled(): Boolean = System.currentTimeMillis() < visionBackoffUntil
+
+        /** Seconds remaining on the current pause, for status text. */
+        fun visionBackoffSecondsLeft(): Long =
+            ((visionBackoffUntil - System.currentTimeMillis()).coerceAtLeast(0L)) / 1000
+
+        @Synchronized
+        fun noteVisionQuotaFailure() {
+            quotaStrikes = (quotaStrikes + 1).coerceAtMost(4)
+            val pauseMs = 15_000L shl (quotaStrikes - 1)   // 15s, 30s, 60s, 120s
+            visionBackoffUntil = System.currentTimeMillis() + pauseMs
+            android.util.Log.w(
+                "DrishtiRepository",
+                "Vision quota hit; pausing cloud vision for ${pauseMs / 1000}s (strike $quotaStrikes)"
+            )
+        }
+
+        @Synchronized
+        fun noteVisionSuccess() {
+            quotaStrikes = 0
+            visionBackoffUntil = 0L
+        }
+
         /** Human-readable cause for logs, distinguishing the failure modes. */
         fun describeApiFailure(e: Exception): String {
             val code = (e as? retrofit2.HttpException)?.code()
@@ -460,6 +496,10 @@ class DrishtiRepository(
 
         // 1. Try Gemini Vision (primary). Verified working on the project's key, and
         // unlike Groq it is actually available for vision on the current plan.
+        if (visionThrottled()) {
+            // Rate-limited a moment ago: another call would only be refused again.
+            return@withContext getOfflineDescription(voiceIntent, userName, isMale)
+        }
         if (geminiKey.isNotBlank() && geminiKey != "MY_GEMINI_API_KEY") {
             val partText = Part(text = systemPrompt)
             val partImage = Part(inlineData = InlineData(mimeType = "image/jpeg", data = base64Data))
@@ -476,10 +516,17 @@ class DrishtiRepository(
                     val response = geminiService.generateContent(model, geminiKey, request)
                     val result = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                     if (!result.isNullOrBlank()) {
+                        noteVisionSuccess()
                         return@withContext result
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("DrishtiRepository", "Gemini vision ($model) failed: ${describeApiFailure(e)}")
+                    if (isQuotaFailure(e)) {
+                        // Trying the sibling model would spend another request against the
+                        // same exhausted quota, so stop this frame here.
+                        noteVisionQuotaFailure()
+                        return@withContext getOfflineDescription(voiceIntent, userName, isMale)
+                    }
                 }
             }
         }
