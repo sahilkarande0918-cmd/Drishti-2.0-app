@@ -101,6 +101,11 @@ fun isEmergencyPhrase(command: String): Boolean {
 
 private const val KEY_GREETED = "has_greeted_once"
 
+private const val KEY_PREFS_VERSION = "prefs_version"
+
+/** Bump to re-run the language migration if the default ever changes again. */
+private const val PREFS_VERSION_MARATHI_DEFAULT = 2
+
 /** Spoken once, on first launch only, in the user's language. */
 private fun firstRunGreeting(name: String): String = when (DEFAULT_LANGUAGE) {
     "mr-IN" -> "नमस्कार $name, मी दृष्टी. मी तुझ्यासोबतच आहे. काहीही विचार, नाहीतर बोलायचं असेल तरी बोल."
@@ -419,6 +424,41 @@ class DrishtiViewModel(
         micAmplitude = value
     }
 
+    /** False when the engine has no real Marathi voice and would substitute another one. */
+    var marathiVoiceAvailable by mutableStateOf(true)
+        private set
+
+    private fun languageAvailability(locale: Locale): String = when (tts?.isLanguageAvailable(locale)) {
+        TextToSpeech.LANG_AVAILABLE -> "AVAILABLE"
+        TextToSpeech.LANG_COUNTRY_AVAILABLE -> "COUNTRY_AVAILABLE"
+        TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> "COUNTRY_VAR_AVAILABLE"
+        TextToSpeech.LANG_MISSING_DATA -> "MISSING_DATA"
+        TextToSpeech.LANG_NOT_SUPPORTED -> "NOT_SUPPORTED"
+        else -> "UNKNOWN"
+    }
+
+    private fun isVoiceUsable(locale: Locale): Boolean = when (tts?.isLanguageAvailable(locale)) {
+        TextToSpeech.LANG_AVAILABLE,
+        TextToSpeech.LANG_COUNTRY_AVAILABLE,
+        TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> true
+        else -> false
+    }
+
+    /**
+     * Opens the system screen for downloading TTS voice data. Without a Marathi voice the
+     * app speaks Marathi words through a Hindi voice, which is what a user actually hears
+     * as "it is talking in Hindi".
+     */
+    fun promptInstallVoiceData() {
+        try {
+            val intent = android.content.Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("DrishtiViewModel", "Could not open TTS voice data installer", e)
+        }
+    }
+
     private var mediaPlayer: MediaPlayer? = null
     private var currentSpeechJob: kotlinx.coroutines.Job? = null
     private var ttsContinuation: kotlinx.coroutines.CancellableContinuation<Unit>? = null
@@ -467,8 +507,17 @@ class DrishtiViewModel(
             BuildConfig.SARVAM_API_KEY
         } else savedSarvam
 
-        // Honour the user's saved choice. This used to hard-assign en-IN on every launch,
-        // which silently threw away whatever language they had picked.
+        // One-time migration to the Marathi-first default. Older builds hard-wrote
+        // tts_language on every launch, so whatever is stored from them is an artefact of
+        // that bug rather than a real choice - devices carry a stale hi-IN that would
+        // otherwise make a Marathi-first app start up speaking Hindi. Runs once; any
+        // language the user picks after this is honoured normally.
+        if (prefs.getInt(KEY_PREFS_VERSION, 0) < PREFS_VERSION_MARATHI_DEFAULT) {
+            prefs.edit()
+                .putString("tts_language", DEFAULT_LANGUAGE)
+                .putInt(KEY_PREFS_VERSION, PREFS_VERSION_MARATHI_DEFAULT)
+                .apply()
+        }
         ttsLanguage = prefs.getString("tts_language", DEFAULT_LANGUAGE).orEmpty()
             .ifBlank { DEFAULT_LANGUAGE }
         tts = TextToSpeech(context, this)
@@ -566,6 +615,24 @@ class DrishtiViewModel(
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 // Fallback to standard English
                 tts?.setLanguage(Locale.ENGLISH)
+            }
+
+            // Report which of our languages the installed engine can actually voice.
+            // Marathi text rendered by a Hindi voice still "works" as far as the API is
+            // concerned - setLanguage just returns a fallback code that nobody checked -
+            // so a missing Marathi voice is silent until someone hears it.
+            marathiVoiceAvailable = isVoiceUsable(Locale("mr", "IN"))
+            Log.i(
+                "DrishtiViewModel",
+                "TTS engine=${tts?.defaultEngine} mr-IN=${languageAvailability(Locale("mr", "IN"))} " +
+                    "hi-IN=${languageAvailability(Locale("hi", "IN"))} en-IN=${languageAvailability(indianLocale)}"
+            )
+            if (!marathiVoiceAvailable) {
+                Log.w(
+                    "DrishtiViewModel",
+                    "No Marathi voice installed - Marathi text would be spoken by a fallback " +
+                        "(usually Hindi) voice. Prompting for the voice data."
+                )
             }
 
             tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
@@ -838,10 +905,18 @@ class DrishtiViewModel(
                     val calmRate = if (userRate == 1.0f) 0.92f else userRate
                     tts?.setSpeechRate(calmRate)
                 } else {
-                    if (ttsLanguage == "hi-IN") {
-                        tts?.setLanguage(Locale("hi", "IN"))
-                    } else if (ttsLanguage == "mr-IN") {
-                        tts?.setLanguage(Locale("mr", "IN"))
+                    val target = if (ttsLanguage == "hi-IN") Locale("hi", "IN") else Locale("mr", "IN")
+                    // setLanguage silently substitutes a different voice when the requested
+                    // one is missing, so check first rather than trusting it.
+                    if (isVoiceUsable(target)) {
+                        tts?.setLanguage(target)
+                    } else {
+                        val substitute = tts?.setLanguage(target)
+                        Log.w(
+                            "DrishtiViewModel",
+                            "No voice for ${target.language}-${target.country} " +
+                                "(setLanguage=$substitute); engine will substitute another voice."
+                        )
                     }
                     val rate = userSettings.value?.speechRate ?: 1.0f
                     tts?.setSpeechRate(rate)
