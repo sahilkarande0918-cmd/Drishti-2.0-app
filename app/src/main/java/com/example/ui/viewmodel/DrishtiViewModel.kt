@@ -479,6 +479,16 @@ class DrishtiViewModel(
     var isSpeaking by mutableStateOf(false)
         private set
 
+    /**
+     * True for a whole utterance, including the gaps between its sentences.
+     *
+     * [isSpeaking] covers only one sentence at a time, so the microphone would reopen in
+     * every inter-sentence gap - producing a mic tone mid-reply and letting the recogniser
+     * hear the rest of it. The mic gate keys on this instead.
+     */
+    var voiceOutputActive by mutableStateOf(false)
+        private set
+
     fun updateMicAmplitude(value: Float) {
         micAmplitude = value
     }
@@ -850,6 +860,7 @@ class DrishtiViewModel(
         currentSpeakingPriority = priority
 
         val job = viewModelScope.launch {
+            voiceOutputActive = true
             try {
                 // The AI is already instructed to answer in the active language, so its
                 // replies arrive in Devanagari and need no translation. Only genuinely
@@ -873,6 +884,7 @@ class DrishtiViewModel(
                 }
             } finally {
                 // Done speaking this priority
+                voiceOutputActive = false
                 currentSpeakingPriority = null
                 processNextSpeechInQueue()
             }
@@ -1811,6 +1823,7 @@ class DrishtiViewModel(
     }
 
     fun stopSpeaking() {
+        voiceOutputActive = false
         currentSpeechJob?.cancel()
         currentSpeechJob = null
         ttsContinuation = null

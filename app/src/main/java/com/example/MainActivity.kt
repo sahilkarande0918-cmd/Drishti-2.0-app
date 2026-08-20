@@ -62,6 +62,12 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 
+/** Normal gap before reopening the mic after a session ends. */
+private const val MIC_RESTART_MIN_MS = 300L
+
+/** Ceiling for the backoff when the recogniser keeps rejecting us. */
+private const val MIC_RESTART_MAX_MS = 4_000L
+
 class MainActivity : ComponentActivity() {
     private var triggerSpeechCaptureCallback: (() -> Unit)? = null
     private var volumeDownJob: Job? = null
@@ -260,6 +266,15 @@ class MainActivity : ComponentActivity() {
 
             var activeRecognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
+            // Grows when the recogniser rejects us (busy / too many requests) and resets on a
+            // clean result, so a failing recogniser is retried politely instead of in a loop.
+            var micRestartDelayMs by remember { mutableLongStateOf(MIC_RESTART_MIN_MS) }
+
+            // Google's recogniser rate-limits sustained use, and this app holds the mic open
+            // by design. Once it has refused us we stop asking it and stay on the system
+            // recogniser, which is what the fallback path ended up using anyway.
+            var preferSystemRecognizer by remember { mutableStateOf(false) }
+
             fun startRecognizerSession(useGoogleService: Boolean) {
                 if (!dViewModel.isMicOn) {
                     Log.d("MainActivity", "startRecognizerSession: ignored, mic latch is off")
@@ -338,6 +353,18 @@ class MainActivity : ComponentActivity() {
 
                             dViewModel.updateMicAmplitude(0.0f)
 
+                            // A rejection means we are asking too often: slow down before the
+                            // next attempt. Silence and no-match are normal and do not.
+                            if (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS ||
+                                error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                                error == SpeechRecognizer.ERROR_CLIENT
+                            ) {
+                                micRestartDelayMs = (micRestartDelayMs * 2).coerceAtMost(MIC_RESTART_MAX_MS)
+                            }
+                            if (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS) {
+                                preferSystemRecognizer = true
+                            }
+
                             when {
                                 useGoogleService && (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS || error == SpeechRecognizer.ERROR_CLIENT) -> {
                                     Log.w("MainActivity", "Google voice service failed with error $error, retrying with system default recognizer")
@@ -375,27 +402,24 @@ class MainActivity : ComponentActivity() {
                             }
 
                             val speechText = matches?.firstOrNull()?.trim()
+                            // A clean result means the recogniser is healthy again.
+                            micRestartDelayMs = MIC_RESTART_MIN_MS
                             if (!speechText.isNullOrBlank()) {
                                 dViewModel.stopSpeaking()
                                 dViewModel.processSpeachTextCommand(speechText)
-                                // Reopen the mic straight away so the user can interrupt the
-                                // answer they are about to hear.
-                                dViewModel.onRecognizerSessionEnded()
-                            } else {
-                                dViewModel.cancelVoiceListening()
                             }
+                            // Ask for a new session either way. If the reply starts speaking,
+                            // the effect holds off until it finishes; if the command produced
+                            // no speech at all, this is what stops the mic from stalling.
+                            dViewModel.onRecognizerSessionEnded()
                         }
 
                         override fun onPartialResults(partialResults: Bundle?) {
-                            // Barge-in: the moment real words are detected, cut Drishti off
-                            // so the user is never talking over a reply they no longer want.
-                            val partial = partialResults
-                                ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                ?.firstOrNull()
-                                ?.trim()
-                            if (!partial.isNullOrBlank() && dViewModel.isSpeaking) {
-                                dViewModel.stopSpeaking()
-                            }
+                            // Deliberately empty. This used to cancel TTS on any partial
+                            // result to give voice barge-in, but with a latched mic the
+                            // recogniser hears Drishti's own speech, so every announcement
+                            // cancelled itself. Barge-in is handled by double Volume-Down and
+                            // the orb tap, which stop speech instantly and reopen the mic.
                         }
 
                         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -440,26 +464,37 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Tear the mic down only when the user actually turns the latch off — not on
-            // every transition through IDLE, which is what used to close it after each reply.
-            LaunchedEffect(dViewModel.isMicOn) {
-                if (!dViewModel.isMicOn) {
-                    try {
-                        activeRecognizer?.cancel()
-                        activeRecognizer?.destroy()
-                        activeRecognizer = null
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                    dViewModel.updateMicAmplitude(0.0f)
+            fun releaseRecognizer() {
+                try {
+                    activeRecognizer?.cancel()
+                    activeRecognizer?.destroy()
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
+                activeRecognizer = null
+                dViewModel.updateMicAmplitude(0.0f)
             }
 
-            // Every bump of micSessionRequest opens a fresh recogniser session. This is what
-            // keeps a latched mic alive across results, no-matches and silence timeouts.
-            LaunchedEffect(dViewModel.micSessionRequest) {
-                if (dViewModel.micSessionRequest > 0 && dViewModel.isMicOn) {
-                    startRecognizerSession(true)
+            /**
+             * The mic runs only while the latch is on AND Drishti is not speaking.
+             *
+             * An open mic during playback hears Drishti's own voice. That fed the recogniser
+             * a constant stream of speech, which cancelled the very sentence being spoken and
+             * restarted the session over and over until Google returned TOO_MANY_REQUESTS —
+             * heard on the device as a mic tone that never stopped and navigation that went
+             * silent. Listening and speaking are now mutually exclusive; the session resumes
+             * by itself the moment a sentence finishes.
+             */
+            LaunchedEffect(dViewModel.isMicOn, dViewModel.voiceOutputActive, dViewModel.micSessionRequest) {
+                if (!dViewModel.isMicOn || dViewModel.voiceOutputActive) {
+                    releaseRecognizer()
+                    return@LaunchedEffect
+                }
+                // Back off before reopening, so a recogniser that keeps failing is not
+                // hammered in a tight loop.
+                delay(micRestartDelayMs)
+                if (dViewModel.isMicOn && !dViewModel.voiceOutputActive) {
+                    startRecognizerSession(!preferSystemRecognizer)
                 }
             }
 
