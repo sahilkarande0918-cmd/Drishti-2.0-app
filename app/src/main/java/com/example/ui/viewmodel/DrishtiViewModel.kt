@@ -2206,7 +2206,10 @@ class DrishtiViewModel(
 
     private fun playCue(tone: Int, durationMs: Int) {
         try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 70)
+            // On STREAM_MUSIC, not STREAM_NOTIFICATION: the notification stream is muted
+            // while the recogniser runs to suppress Google's earcons, and this cue is the
+            // one sound that must still be heard when the mic is switched on.
+            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 70)
             toneGen.startTone(tone, durationMs)
             viewModelScope.launch(Dispatchers.IO) {
                 delay((durationMs + 120).toLong())
@@ -4199,7 +4202,10 @@ class DrishtiViewModel(
     fun playObstacleSonarBeeps(distance: Float) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 75)
+                // STREAM_MUSIC, not STREAM_NOTIFICATION: the notification stream is muted
+                // while the recogniser runs, and the mic is normally latched on during
+                // navigation - these are proximity warnings and must never be silenced.
+                val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 75)
                 val rate = when {
                     distance < 0.5f -> 120L
                     distance < 1.2f -> 300L

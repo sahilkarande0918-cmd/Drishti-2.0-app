@@ -72,6 +72,42 @@ class MainActivity : ComponentActivity() {
     private var triggerSpeechCaptureCallback: (() -> Unit)? = null
     private var volumeDownJob: Job? = null
 
+    /** True while we are holding the recogniser's earcon stream muted. */
+    private var earconsMuted = false
+
+    /**
+     * Google's recogniser plays its own earcons on every session - open, no_input, success,
+     * failure - and they are not suppressible through the SpeechRecognizer API. A latched
+     * mic restarts sessions constantly, so those tones become a sound that never stops.
+     *
+     * Measured on device, they are emitted on STREAM_NOTIFICATION (streamType 5), so that
+     * stream alone is muted for the life of a recogniser session and restored the moment it
+     * is released. Drishti's own speech is on STREAM_MUSIC and is unaffected, as is the
+     * start cue the user asked to keep.
+     */
+    private fun setEarconsMuted(muted: Boolean) {
+        if (muted == earconsMuted) return
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            am.adjustStreamVolume(
+                AudioManager.STREAM_NOTIFICATION,
+                if (muted) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE,
+                0
+            )
+            earconsMuted = muted
+        } catch (e: Exception) {
+            // Muting needs Do-Not-Disturb access on some builds. Losing the beep is not
+            // worth losing the microphone over, so carry on either way.
+            Log.w("MainActivity", "Could not ${if (muted) "mute" else "unmute"} recogniser earcons", e)
+        }
+    }
+
+    override fun onPause() {
+        // Never leave the user's music stream muted because we went to the background.
+        setEarconsMuted(false)
+        super.onPause()
+    }
+
     /**
      * Debug-only text injection, so the command router can be exercised without a real
      * microphone. Voice is the app's only input path, which otherwise makes every routing
@@ -105,6 +141,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        setEarconsMuted(false)
         debugSayReceiver?.let {
             try {
                 unregisterReceiver(it)
@@ -437,12 +474,16 @@ class MainActivity : ComponentActivity() {
                         // Marathi stays primary.
                         putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN"))
                         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                        // Not EXTRA_PREFER_OFFLINE: this device has no on-device Marathi
+                        // model, so offline recognition fails outright with
+                        // ERROR_LANGUAGE_UNAVAILABLE (12) and still plays a failure earcon.
                         // Cut the trailing silence the recogniser waits through before it
                         // hands us the text; this is dead time the user feels as lag.
                         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
                         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
                     }
 
+                    setEarconsMuted(true)
                     (context as? android.app.Activity)?.runOnUiThread {
                         newRecognizer.startListening(intent)
                     }
@@ -465,6 +506,7 @@ class MainActivity : ComponentActivity() {
             }
 
             fun releaseRecognizer() {
+                setEarconsMuted(false)
                 try {
                     activeRecognizer?.cancel()
                     activeRecognizer?.destroy()
