@@ -194,6 +194,9 @@ fun DashboardScreen(
             } else {
                 viewModel.runAutoAnalyzeOnBitmap(generateSimulatedBitmap(context, intent), intent)
             }
+            // Return to the voice screen so the camera only surfaced for the shot.
+            delay(400)
+            pagerState.animateScrollToPage(1)
         }
     }
 
@@ -286,9 +289,13 @@ fun DashboardScreen(
                 }
             }
 
-            // Three-Phone Composition Pager
+            // Single Gemini-style screen: the voice assistant fills the dashboard.
+            // The pager survives only so the voice photo-capture flow can momentarily bind
+            // the camera on page 0 (see capturePhotoForVoiceAnalyzeEvent); the user can no
+            // longer swipe between mock screens, which is what made it read as a mockup.
             HorizontalPager(
                 state = pagerState,
+                userScrollEnabled = false,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -327,31 +334,8 @@ fun DashboardScreen(
                 }
             }
 
-            // Interconnected dots indicator
-            Row(
-                modifier = Modifier
-                    .padding(top = 16.dp, bottom = 100.dp)
-                    .height(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                repeat(4) { index ->
-                    val isSelected = pagerState.currentPage == index
-                    val indicatorWidth by animateDpAsState(if (isSelected) 24.dp else 8.dp)
-                    val indicatorColor = when (index) {
-                        0 -> AccentPrimary
-                        1 -> AccentSecondary
-                        2 -> AccentPrimary
-                        else -> AccentSecondary
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(width = indicatorWidth, height = 8.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) indicatorColor else Color.White.copy(alpha = 0.2f))
-                    )
-                }
-            }
+            // Page dots removed with the swipe: there is only one dashboard screen now.
+            Spacer(modifier = Modifier.height(100.dp))
         }
 
         // Voice Assistant Dialog overlay
@@ -1410,9 +1394,14 @@ fun NativeVoiceOrb(
     // State is carried by MOTION as much as by hue - speed, pulse depth and particles -
     // so the orb still reads as idle / listening / thinking to anyone who cannot separate
     // the colours, and emergency stays the only red thing on screen.
-    val accentBright = AccentPrimary
-    val accentDeep = AccentSecondary
+    // Gemini's blue -> violet -> coral sweep. State is carried by MOTION as much as by
+    // hue - speed, pulse depth, particles - so the orb still reads as idle / listening /
+    // thinking to someone who cannot separate the colours, and emergency stays the only
+    // red on screen.
+    val accentBright = GeminiBlue
+    val accentDeep = GeminiViolet
     val accentPale = Color(0xFFD3E3FD)
+    val coral = GeminiCoral
     val amber = AccentWarn
     val red = EmergencyRed
 
@@ -1440,7 +1429,7 @@ fun NativeVoiceOrb(
             showParticles = false; volReactive = false
         }
         "speaking" -> {
-            color1 = accentBright; color2 = accentPale
+            color1 = accentDeep; color2 = coral
             speed = 1.4f; pulseAmt = 0.1f
             showParticles = true; volReactive = true
         }

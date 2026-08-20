@@ -27,10 +27,16 @@ fun Modifier.tonalSurface(
     .clip(shape)
     .background(if (strong) SurfaceCardElevated else SurfaceCardDark, shape)
 
-/** Same container with a hairline outline, for panels that must read as bounded. */
+/**
+ * Same container with a gradient hairline, the Gemini edge treatment.
+ *
+ * A flat grey outline was a large part of why the previous pass read as washed out: it
+ * added a fourth grey to a screen that already had three. The blue-violet sweep gives the
+ * panel an edge without adding another neutral.
+ */
 fun Modifier.outlinedTonalSurface(
     shape: Shape = RoundedCornerShape(20.dp),
     strong: Boolean = false
 ): Modifier = this
     .tonalSurface(shape, strong)
-    .border(BorderStroke(1.dp, IdleGray.copy(alpha = 0.35f)), shape)
+    .border(BorderStroke(1.dp, AccentGradientSoft), shape)
