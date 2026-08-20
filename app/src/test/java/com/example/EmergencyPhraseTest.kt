@@ -1,9 +1,55 @@
 package com.example
 
 import com.example.ui.viewmodel.isEmergencyPhrase
+import com.example.ui.viewmodel.isPathClear
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+
+/**
+ * A clear path misread as a hazard gets announced aloud while the user is walking, and a
+ * hazard misread as clear gets silently swallowed. Both directions are pinned.
+ */
+class PathClearTest {
+
+    @Test
+    fun `clear reports are recognised in every language the model replies in`() {
+        listOf(
+            "CLEAR",
+            "clear",
+            "clear.",
+            "Clear ahead",
+            "The path is clear",
+            "nothing in your way",
+            "no obstacles",
+            // Transliterated sentinel - the model translates its own CLEAR token
+            "क्लियर",
+            "क्लियर.",
+            "क्लीअर",
+            // Marathi / Hindi phrasings
+            "रस्ता मोकळा आहे",
+            "काही नाही",
+            "रास्ता साफ है",
+            "कुछ नहीं"
+        ).forEach {
+            assertTrue("should read as clear: $it", isPathClear(it))
+        }
+    }
+
+    @Test
+    fun `real hazards are never treated as clear`() {
+        listOf(
+            "Stairs going down, straight ahead, 2 meters",
+            "A chair on your left, 1 meter",
+            "समोर खुर्ची आहे",
+            "सीढ़ियाँ नीचे जा रही हैं",
+            "Open drain on your right",
+            "A person standing straight ahead"
+        ).forEach {
+            assertFalse("should NOT read as clear: $it", isPathClear(it))
+        }
+    }
+}
 
 /**
  * The SOS matcher decides whether a guardian gets woken and told the user is in danger.

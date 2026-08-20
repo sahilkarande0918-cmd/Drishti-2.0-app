@@ -20,7 +20,7 @@ import com.example.data.api.OsrmStep
 import com.example.data.api.GroqMessage
 import com.example.data.database.*
 import com.example.data.repository.DrishtiRepository
-import com.example.util.OutdoorObstacleDetector
+import com.example.util.ObstacleDetector
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
@@ -93,6 +93,22 @@ private val DISTRESS_PATTERNS = listOf(
  * True only for a genuine call for help. A false positive here wakes a guardian and
  * reports a real emergency, so the word "help" alone is deliberately not enough.
  */
+/**
+ * Shared by indoor, outdoor and proactive scanning: did the vision layer report a clear
+ * path rather than a hazard?
+ *
+ * The prompts ask for the sentinel "CLEAR", but they also instruct the model to answer
+ * only in the user's language, so it obligingly returns the word transliterated -
+ * "क्लियर". That matched nothing, so a clear path was announced aloud as if it were an
+ * obstacle. Transliterations are matched explicitly for that reason.
+ */
+fun isPathClear(text: String): Boolean {
+    val lower = text.trim().lowercase().trimEnd('.', '!', '।', ' ')
+    if (lower.isBlank()) return true
+    if (lower == "clear" || lower.startsWith("clear ")) return true
+    return CLEAR_MARKERS.any { lower.contains(it) }
+}
+
 fun isEmergencyPhrase(command: String): Boolean {
     val c = command.lowercase().trim()
     if (ASSISTANCE_REQUEST.containsMatchIn(c)) return false
@@ -102,6 +118,31 @@ fun isEmergencyPhrase(command: String): Boolean {
 private const val KEY_GREETED = "has_greeted_once"
 
 private const val KEY_PREFS_VERSION = "prefs_version"
+
+/**
+ * How long the fast layer stays quiet about an object it has already announced.
+ *
+ * Long on purpose: once the user has been told there is a bed or a person ahead, repeating
+ * it every few seconds is noise they cannot tune out. Something escalating to VERY_CLOSE
+ * still speaks immediately, regardless of this.
+ */
+private const val OBSTACLE_REPEAT_MS = 20_000L
+
+/**
+ * Ways the vision layer says "nothing in your way", including the transliterated forms it
+ * produces when told to answer only in Hindi or Marathi.
+ */
+private val CLEAR_MARKERS = listOf(
+    // English
+    "path is clear", "path clear", "nothing in", "no obstacle", "no obstacles",
+    "all clear", "nothing ahead", "way is clear",
+    // Transliterated "clear" in Devanagari
+    "क्लियर", "क्लीयर", "क्लिअर", "क्लीअर",
+    // Hindi
+    "रास्ता साफ", "कुछ नहीं", "साफ है", "कोई बाधा", "कोई रुकावट", "रास्ता खाली",
+    // Marathi
+    "मोकळा", "मोकळी", "मोकळे", "काही नाही", "रस्ता स्वच्छ", "अडथळा नाही", "रस्ता रिकामा"
+)
 
 /** Bump to re-run the language migration if the default ever changes again. */
 private const val PREFS_VERSION_MARATHI_DEFAULT = 2
@@ -219,6 +260,11 @@ class DrishtiViewModel(
     private var lastIndoorSpeakTime = 0L
     private var lastIndoorSpokenKey = ""
     private var indoorAiJob: Job? = null
+    private var indoorFastJob: Job? = null
+
+    /** What the fast layer has already said about each object, keyed by COCO label. */
+    private data class ObstacleAnnouncement(val lastSpokenAt: Long, val wasUrgent: Boolean)
+    private val announcedObstacles = mutableMapOf<String, ObstacleAnnouncement>()
     // Latest upright camera frame shared by indoor and outdoor navigation.
     @Volatile private var latestNavFrame: Bitmap? = null
     @Volatile private var latestNavFrameTime: Long = 0L
@@ -229,9 +275,22 @@ class DrishtiViewModel(
     var outdoorNavStatus by mutableStateOf("")
     private var outdoorFastJob: Job? = null
     private var outdoorAiJob: Job? = null
-    private var outdoorDetector: OutdoorObstacleDetector? = null
-    private var lastOutdoorFastSpeakTime = 0L
-    private var lastOutdoorFastSpokenKey = ""
+    private var obstacleDetector: ObstacleDetector? = null
+
+    /**
+     * Shared by the indoor and outdoor fast loops. Both construct it from background
+     * dispatchers, and the underlying MediaPipe detector is not thread-safe, so creation
+     * is serialised here rather than relying on the two modes staying mutually exclusive.
+     */
+    @Synchronized
+    private fun obtainDetector(): ObstacleDetector? = try {
+        obstacleDetector ?: ObstacleDetector(context).also { obstacleDetector = it }
+    } catch (e: Exception) {
+        Log.w("DrishtiViewModel", "On-device detector unavailable; AI layer only", e)
+        null
+    }
+    /** When the fast layer last spoke, so the AI layer never talks over it. */
+    private var lastFastSpeakTime = 0L
     private var lastOutdoorAiSpeakTime = 0L
     private var lastOutdoorAiSpokenKey = ""
 
@@ -3033,13 +3092,21 @@ class DrishtiViewModel(
         isAnalyzing = false
         lastIndoorSpeakTime = 0L
         lastIndoorSpokenKey = ""
+        announcedObstacles.clear()
         indoorNavStatus = "Indoor navigation active"
         orbState = OrbState.IDLE
         speak(
-            "Starting indoor navigation. Opening the camera now. Move slowly and I'll tell you exactly what is in front of you.",
+            phrase(
+                "Starting indoor navigation. Opening the camera now. Move slowly and I'll tell you exactly what is in front of you.",
+                "घर के अंदर का रास्ता दिखा रही हूँ. कैमरा खोल रही हूँ. धीरे चलो, मैं बताती रहूँगी आगे क्या है.",
+                "आतली वाट दाखवतेय. कॅमेरा उघडतेय. हळू चाल, मी सांगत राहीन समोर काय आहे."
+            ),
             SpeechPriority.NAVIGATION,
             bypassCooldown = true
         )
+        // Both layers run together: the offline one answers in ~100ms, the cloud one adds
+        // stairs, doors and ramps a couple of seconds later.
+        startIndoorFastLoop()
         startIndoorAiLoop()
     }
 
@@ -3048,10 +3115,13 @@ class DrishtiViewModel(
         isIndoorNavActive = false
         indoorAiJob?.cancel()
         indoorAiJob = null
+        indoorFastJob?.cancel()
+        indoorFastJob = null
         indoorNavStatus = ""
         lastIndoorSpokenKey = ""
+        announcedObstacles.clear()
         if (announce) {
-            speak("Okay, I've stopped indoor navigation.", SpeechPriority.NAVIGATION, bypassCooldown = true)
+            speak(phrase("Okay, I've stopped indoor navigation.", "ठीक है, मैंने अंदर का रास्ता दिखाना बंद कर दिया.", "ठीक आहे, मी आतली वाट दाखवणे बंद केलं."), SpeechPriority.NAVIGATION, bypassCooldown = true)
         }
         orbState = OrbState.IDLE
     }
@@ -3064,14 +3134,56 @@ class DrishtiViewModel(
         stairs going DOWN, stairs going UP, a ramp, a closed door, an open doorway, a pillar or post, a wall,
         a lift or elevator, a person standing, a person sitting on a chair, a chair, a table, a bed, or a low obstacle on the floor.
         NEVER guess an object you do not clearly see, and do not confuse stairs with furniture.
-        Keep it under 12 words, one short friendly sentence. If the path is genuinely clear, reply with exactly: CLEAR
+        Keep it under 12 words, one short friendly sentence. If the path is genuinely clear, reply with exactly the English word CLEAR. Do NOT translate or transliterate that word, even though the rest of your answers are in the user language.
     """.trimIndent()
+
+    /**
+     * Indoor fast layer, mirroring the outdoor one: runs the offline detector on every
+     * fresh frame and speaks furniture and people the moment they are seen.
+     *
+     * Indoor navigation used to be cloud-only, so every single announcement waited on a
+     * network round-trip (up to a 9s timeout) before the user heard anything. For someone
+     * walking towards a chair that is far too late. Stairs, doors and ramps still come
+     * from the AI loop because COCO has no classes for them.
+     */
+    /**
+     * Fixed spoken phrases, written out in each language.
+     *
+     * These fire on every mode change, and routing a sentence whose wording we already
+     * know through the AI translator would add a network round-trip before the user hears
+     * anything. Marathi is the default language, so these must not be English-only.
+     */
+    private fun phrase(en: String, hi: String, mr: String): String = when (ttsLanguage) {
+        "hi-IN" -> hi
+        "mr-IN" -> mr
+        else -> en
+    }
+
+    private fun startIndoorFastLoop() {
+        indoorFastJob?.cancel()
+        indoorFastJob = viewModelScope.launch(Dispatchers.Default) {
+            val detector = obtainDetector() ?: return@launch
+            var lastProcessedStamp = 0L
+            while (isIndoorNavActive) {
+                val frame = latestNavFrame
+                val stamp = latestNavFrameTime
+                if (frame == null || stamp == lastProcessedStamp) {
+                    delay(120)
+                    continue
+                }
+                lastProcessedStamp = stamp
+                val top = detector.detect(frame, ObstacleDetector.INDOOR_LABELS).firstOrNull()
+                if (!isIndoorNavActive) break
+                if (top != null) announceObstacle(top, indoor = true)
+            }
+        }
+    }
 
     private fun startIndoorAiLoop() {
         indoorAiJob?.cancel()
         indoorAiJob = viewModelScope.launch {
             if (geminiApiKey.isBlank() && groqApiKey.isBlank()) {
-                speak("Indoor navigation needs an internet connection to work. Please check your network.", bypassCooldown = true)
+                speak(phrase("Indoor navigation needs an internet connection to work. Please check your network.", "अंदर का रास्ता दिखाने के लिए इंटरनेट चाहिए. नेटवर्क चेक करो.", "आतली वाट दाखवायला इंटरनेट लागतं. नेटवर्क चेक कर."), bypassCooldown = true)
                 stopIndoorNavigation(announce = false)
                 return@launch
             }
@@ -3104,29 +3216,38 @@ class DrishtiViewModel(
                 orbState = OrbState.IDLE
 
                 val cleaned = raw?.trim()
-                if (cleaned.isNullOrBlank() || isIndoorPathClear(cleaned)) {
+                if (cleaned.isNullOrBlank() || isPathClear(cleaned)) {
                     indoorNavStatus = "Path looks clear"
                 } else {
                     indoorNavStatus = cleaned
                     lastProactiveHazardAlert = cleaned
                     val key = cleaned.lowercase().filter { it.isLetterOrDigit() }
                     val now = System.currentTimeMillis()
-                    // Speak when the message changes, or re-confirm the same hazard every 7s.
-                    if (key != lastIndoorSpokenKey || now - lastIndoorSpeakTime > 7000L) {
+                    val dist = extractDistance(cleaned)
+                    val aboutToHit = dist != null && dist <= 1.0f
+
+                    // Only speak about a genuinely different hazard. Re-confirming the same
+                    // one on a timer meant the user heard the same sentence over and over
+                    // while standing still.
+                    val isNewHazard = key != lastIndoorSpokenKey
+                    // Never cut the fast layer off mid-sentence, and never cut off an
+                    // utterance already in progress unless the user is about to walk into
+                    // something.
+                    val mayInterrupt = now - lastFastSpeakTime >= 1500L && (!isSpeaking || aboutToHit)
+                    if (mayInterrupt && (isNewHazard || (aboutToHit && now - lastIndoorSpeakTime > 5000L))) {
                         lastIndoorSpokenKey = key
                         lastIndoorSpeakTime = now
-                        currentSpeechJob?.cancel()
-                        stopSpeaking()
+                        if (aboutToHit) {
+                            currentSpeechJob?.cancel()
+                            stopSpeaking()
+                        }
                         speak(cleaned, SpeechPriority.OBSTACLE, bypassCooldown = true)
                         addSceneToMemory(cleaned)
 
-                        val dist = extractDistance(cleaned)
-                        if (dist != null) {
-                            when {
-                                dist <= 0.8f -> { triggerVibration(longArrayOf(0, 450, 105, 450)); playObstacleSonarBeeps(dist) }
-                                dist <= 1.5f -> { triggerVibration(250L); playObstacleSonarBeeps(dist) }
-                                dist <= 2.5f -> { triggerVibration(80L); playObstacleSonarBeeps(dist) }
-                            }
+                        // One buzz, and only when contact is imminent.
+                        if (aboutToHit) {
+                            triggerVibration(400L)
+                            playObstacleSonarBeeps(dist ?: 0.8f)
                         }
                     }
                 }
@@ -3137,19 +3258,6 @@ class DrishtiViewModel(
         }
     }
 
-    private fun isIndoorPathClear(text: String): Boolean {
-        val lower = text.trim().lowercase()
-        return lower == "clear" ||
-            lower == "clear." ||
-            lower.startsWith("clear ") ||
-            lower.contains("path is clear") ||
-            lower.contains("path clear") ||
-            lower.contains("nothing in") ||
-            lower.contains("no obstacle") ||
-            lower.contains("all clear") ||
-            lower.contains("रास्ता साफ") || lower.contains("कुछ नहीं") || lower.contains("साफ है") ||
-            lower.contains("मोकळा") || lower.contains("काही नाही") || lower.contains("रस्ता स्वच्छ")
-    }
 
     // ==========================================
     // OUTDOOR NAVIGATION
@@ -3165,14 +3273,17 @@ class DrishtiViewModel(
         if (isSmartNavActive) stopSmartNavigation(announce = false)
         isOutdoorNavActive = true
         isAnalyzing = false
-        lastOutdoorFastSpeakTime = 0L
-        lastOutdoorFastSpokenKey = ""
+        announcedObstacles.clear()
         lastOutdoorAiSpeakTime = 0L
         lastOutdoorAiSpokenKey = ""
         outdoorNavStatus = "Outdoor navigation active"
         orbState = OrbState.IDLE
         speak(
-            "Starting outdoor navigation. Opening the camera now. Walk slowly and I'll warn you about vehicles, people, poles and potholes.",
+            phrase(
+                "Starting outdoor navigation. Opening the camera now. Walk slowly and I'll warn you about vehicles, people, poles and potholes.",
+                "बाहर का रास्ता दिखा रही हूँ. कैमरा खोल रही हूँ. धीरे चलो, मैं गाडियों, लोगों, खंभों और गढ्ढों के बारे में बताती रहूँगी.",
+                "बाहेरची वाट दाखवतेय. कॅमेरा उघडतेय. हळू चाल, मी गाड्या, माणसं, खांब आणि खड्डे यांच्याबद्दल सांगत राहीन."
+            ),
             SpeechPriority.NAVIGATION,
             bypassCooldown = true
         )
@@ -3188,10 +3299,9 @@ class DrishtiViewModel(
         outdoorAiJob?.cancel()
         outdoorAiJob = null
         outdoorNavStatus = ""
-        lastOutdoorFastSpokenKey = ""
         lastOutdoorAiSpokenKey = ""
         if (announce) {
-            speak("Okay, I've stopped outdoor navigation.", SpeechPriority.NAVIGATION, bypassCooldown = true)
+            speak(phrase("Okay, I've stopped outdoor navigation.", "ठीक है, मैंने बाहर का रास्ता दिखाना बंद कर दिया.", "ठीक आहे, मी बाहेरची वाट दाखवणे बंद केलं."), SpeechPriority.NAVIGATION, bypassCooldown = true)
         }
         orbState = OrbState.IDLE
     }
@@ -3206,12 +3316,7 @@ class DrishtiViewModel(
     private fun startOutdoorFastLoop() {
         outdoorFastJob?.cancel()
         outdoorFastJob = viewModelScope.launch(Dispatchers.Default) {
-            val detector = try {
-                outdoorDetector ?: OutdoorObstacleDetector(context).also { outdoorDetector = it }
-            } catch (e: Exception) {
-                Log.w("DrishtiViewModel", "On-device detector unavailable; AI layer only", e)
-                null
-            } ?: return@launch
+            val detector = obtainDetector() ?: return@launch
             var lastProcessedStamp = 0L
             while (fastLayerActive()) {
                 val frame = latestNavFrame
@@ -3223,80 +3328,100 @@ class DrishtiViewModel(
                 lastProcessedStamp = stamp
                 val top = detector.detect(frame).firstOrNull()
                 if (!fastLayerActive()) break
-                if (top != null) announceFastObstacle(top)
+                if (top != null) announceObstacle(top, indoor = false)
             }
         }
     }
 
-    private fun announceFastObstacle(obstacle: OutdoorObstacleDetector.Obstacle) {
-        // In smart mode, the AI layer already describes people while indoors (or until the
-        // environment is known) — skip fast person alerts there to avoid double announcements.
-        if (isSmartNavActive && smartNavEnvironment != "outdoor" && obstacle.label == "person") return
-        val key = "${obstacle.label}|${obstacle.direction}|${obstacle.proximity}"
+    /**
+     * Single announcer for both fast layers.
+     *
+     * Deduplication is keyed on the OBJECT, not on object+direction+proximity. The bounding
+     * box jitters across the direction and proximity bucket boundaries on almost every
+     * frame while the user walks, so the old key changed constantly, defeated its own
+     * cooldown, and re-announced a stationary bed or person several times a second.
+     *
+     * A thing already announced stays quiet until it becomes genuinely dangerous
+     * (escalates to VERY_CLOSE) or a long while has passed.
+     */
+    private fun announceObstacle(obstacle: ObstacleDetector.Obstacle, indoor: Boolean) {
+        // In smart mode the AI layer already describes people indoors - don't say it twice.
+        if (!indoor && isSmartNavActive && smartNavEnvironment != "outdoor" && obstacle.label == "person") return
+
         val now = System.currentTimeMillis()
-        val urgent = obstacle.proximity == OutdoorObstacleDetector.Proximity.VERY_CLOSE
-        // Re-announce the same obstacle sooner when it is dangerously close.
-        val repeatGap = if (urgent) 2500L else 5000L
-        if (key == lastOutdoorFastSpokenKey && now - lastOutdoorFastSpeakTime < repeatGap) return
-        lastOutdoorFastSpokenKey = key
-        lastOutdoorFastSpeakTime = now
+        val urgent = obstacle.proximity == ObstacleDetector.Proximity.VERY_CLOSE
+        val previous = announcedObstacles[obstacle.label]
+        val newlyUrgent = urgent && previous?.wasUrgent != true
+
+        if (previous != null && !newlyUrgent && now - previous.lastSpokenAt < OBSTACLE_REPEAT_MS) return
+
+        // Never chop a sentence that is still being spoken. Only a thing about to be walked
+        // into earns an interruption; anything else waits for the next frame.
+        if (isSpeaking && !newlyUrgent) return
+
+        announcedObstacles[obstacle.label] = ObstacleAnnouncement(now, urgent)
+        lastFastSpeakTime = now
         val sentence = buildFastObstacleSentence(obstacle)
         viewModelScope.launch {
-            if (isSmartNavActive) smartNavStatus = sentence else outdoorNavStatus = sentence
-            currentSpeechJob?.cancel()
-            stopSpeaking()
+            if (indoor) indoorNavStatus = sentence
+            else if (isSmartNavActive) smartNavStatus = sentence
+            else outdoorNavStatus = sentence
+
+            if (newlyUrgent) {
+                currentSpeechJob?.cancel()
+                stopSpeaking()
+            }
             speak(sentence, SpeechPriority.OBSTACLE, bypassCooldown = true)
-            when (obstacle.proximity) {
-                OutdoorObstacleDetector.Proximity.VERY_CLOSE -> {
-                    triggerVibration(longArrayOf(0, 450, 105, 450))
-                    playObstacleSonarBeeps(0.8f)
-                }
-                OutdoorObstacleDetector.Proximity.CLOSE -> triggerVibration(250L)
-                else -> {}
+
+            // One buzz, only when something is close enough to walk into. Vibrating on
+            // every announcement made the phone shake continuously while walking.
+            if (newlyUrgent) {
+                triggerVibration(400L)
+                playObstacleSonarBeeps(0.8f)
             }
         }
     }
 
     /** Already-localized sentence so the fast layer never waits on a translation call. */
-    private fun buildFastObstacleSentence(o: OutdoorObstacleDetector.Obstacle): String {
+    private fun buildFastObstacleSentence(o: ObstacleDetector.Obstacle): String {
         val label = outdoorLabelName(o.label)
         return when (ttsLanguage) {
             "hi-IN" -> {
                 val dir = when (o.direction) {
-                    OutdoorObstacleDetector.Direction.LEFT -> "आपके बाएँ तरफ"
-                    OutdoorObstacleDetector.Direction.RIGHT -> "आपके दाएँ तरफ"
-                    OutdoorObstacleDetector.Direction.AHEAD -> "ठीक सामने"
+                    ObstacleDetector.Direction.LEFT -> "आपके बाएँ तरफ"
+                    ObstacleDetector.Direction.RIGHT -> "आपके दाएँ तरफ"
+                    ObstacleDetector.Direction.AHEAD -> "ठीक सामने"
                 }
                 val prox = when (o.proximity) {
-                    OutdoorObstacleDetector.Proximity.VERY_CLOSE -> "बहुत पास, संभलकर!"
-                    OutdoorObstacleDetector.Proximity.CLOSE -> "पास है"
-                    OutdoorObstacleDetector.Proximity.NEARBY -> "थोड़ी दूरी पर"
+                    ObstacleDetector.Proximity.VERY_CLOSE -> "बहुत पास, संभलकर!"
+                    ObstacleDetector.Proximity.CLOSE -> "पास है"
+                    ObstacleDetector.Proximity.NEARBY -> "थोड़ी दूरी पर"
                 }
                 "$dir $label, $prox"
             }
             "mr-IN" -> {
                 val dir = when (o.direction) {
-                    OutdoorObstacleDetector.Direction.LEFT -> "तुमच्या डावीकडे"
-                    OutdoorObstacleDetector.Direction.RIGHT -> "तुमच्या उजवीकडे"
-                    OutdoorObstacleDetector.Direction.AHEAD -> "अगदी समोर"
+                    ObstacleDetector.Direction.LEFT -> "तुमच्या डावीकडे"
+                    ObstacleDetector.Direction.RIGHT -> "तुमच्या उजवीकडे"
+                    ObstacleDetector.Direction.AHEAD -> "अगदी समोर"
                 }
                 val prox = when (o.proximity) {
-                    OutdoorObstacleDetector.Proximity.VERY_CLOSE -> "खूप जवळ, सांभाळा!"
-                    OutdoorObstacleDetector.Proximity.CLOSE -> "जवळ आहे"
-                    OutdoorObstacleDetector.Proximity.NEARBY -> "थोड्या अंतरावर"
+                    ObstacleDetector.Proximity.VERY_CLOSE -> "खूप जवळ, सांभाळा!"
+                    ObstacleDetector.Proximity.CLOSE -> "जवळ आहे"
+                    ObstacleDetector.Proximity.NEARBY -> "थोड्या अंतरावर"
                 }
                 "$dir $label, $prox"
             }
             else -> {
                 val dir = when (o.direction) {
-                    OutdoorObstacleDetector.Direction.LEFT -> "on your left"
-                    OutdoorObstacleDetector.Direction.RIGHT -> "on your right"
-                    OutdoorObstacleDetector.Direction.AHEAD -> "straight ahead"
+                    ObstacleDetector.Direction.LEFT -> "on your left"
+                    ObstacleDetector.Direction.RIGHT -> "on your right"
+                    ObstacleDetector.Direction.AHEAD -> "straight ahead"
                 }
                 val prox = when (o.proximity) {
-                    OutdoorObstacleDetector.Proximity.VERY_CLOSE -> "very close, careful!"
-                    OutdoorObstacleDetector.Proximity.CLOSE -> "getting close"
-                    OutdoorObstacleDetector.Proximity.NEARBY -> "a little ahead"
+                    ObstacleDetector.Proximity.VERY_CLOSE -> "very close, careful!"
+                    ObstacleDetector.Proximity.CLOSE -> "getting close"
+                    ObstacleDetector.Proximity.NEARBY -> "a little ahead"
                 }
                 "$label $dir, $prox"
             }
@@ -3310,6 +3435,11 @@ class DrishtiViewModel(
             "dog" -> "कुत्ता"; "cow" -> "गाय"; "horse" -> "घोड़ा"; "sheep" -> "भेड़"; "cat" -> "बिल्ली"
             "traffic light" -> "ट्रैफिक सिग्नल"; "stop sign" -> "स्टॉप साइन"
             "fire hydrant" -> "हाइड्रेंट"; "bench" -> "बेंच"; "parking meter" -> "पार्किंग मीटर"
+            "chair" -> "कुर्सी"; "couch" -> "सोफा"; "bed" -> "बिस्तर"
+            "dining table" -> "मेज़"; "toilet" -> "टॉयलेट"; "potted plant" -> "गमला"
+            "tv" -> "टीवी"; "refrigerator" -> "फ्रिज"; "oven" -> "ओवन"
+            "sink" -> "सिंक"; "microwave" -> "माइक्रोवेव"
+            "suitcase" -> "सूटकेस"; "backpack" -> "बैग"
             else -> label
         }
         "mr-IN" -> when (label) {
@@ -3318,6 +3448,11 @@ class DrishtiViewModel(
             "dog" -> "कुत्रा"; "cow" -> "गाय"; "horse" -> "घोडा"; "sheep" -> "मेंढी"; "cat" -> "मांजर"
             "traffic light" -> "ट्रॅफिक सिग्नल"; "stop sign" -> "स्टॉप साईन"
             "fire hydrant" -> "हायड्रंट"; "bench" -> "बाक"; "parking meter" -> "पार्किंग मीटर"
+            "chair" -> "खुर्ची"; "couch" -> "सोफा"; "bed" -> "बेड"
+            "dining table" -> "टेबल"; "toilet" -> "टॉयलेट"; "potted plant" -> "कुंडी"
+            "tv" -> "टीव्ही"; "refrigerator" -> "फ्रिज"; "oven" -> "ओव्हन"
+            "sink" -> "सिंक"; "microwave" -> "मायक्रोवेव्ह"
+            "suitcase" -> "सुटकेस"; "backpack" -> "बॅग"
             else -> label
         }
         else -> when (label) {
@@ -3326,6 +3461,11 @@ class DrishtiViewModel(
             "dog" -> "A dog"; "cow" -> "A cow"; "horse" -> "A horse"; "sheep" -> "A sheep"; "cat" -> "A cat"
             "traffic light" -> "A traffic light"; "stop sign" -> "A stop sign"
             "fire hydrant" -> "A fire hydrant"; "bench" -> "A bench"; "parking meter" -> "A parking meter"
+            "chair" -> "A chair"; "couch" -> "A sofa"; "bed" -> "A bed"
+            "dining table" -> "A table"; "toilet" -> "A toilet"; "potted plant" -> "A plant pot"
+            "tv" -> "A TV"; "refrigerator" -> "A fridge"; "oven" -> "An oven"
+            "sink" -> "A sink"; "microwave" -> "A microwave"
+            "suitcase" -> "A suitcase"; "backpack" -> "A bag"
             else -> label
         }
     }
@@ -3339,7 +3479,7 @@ class DrishtiViewModel(
         Say exactly WHAT it is, WHICH direction (on your left / straight ahead / on your right), and roughly how far in meters.
         IGNORE moving vehicles, riders and people — another sensor announces those.
         NEVER guess something you do not clearly see. Keep it under 12 words, one short friendly sentence.
-        If the walking path has no such static hazard, reply with exactly: CLEAR
+        If the walking path has no such static hazard, reply with exactly the English word CLEAR. Do NOT translate or transliterate that word, even though the rest of your answers are in the user language.
     """.trimIndent()
 
     /**
@@ -3379,7 +3519,7 @@ class DrishtiViewModel(
                 if (!isOutdoorNavActive) break
 
                 val cleaned = raw?.trim()
-                if (!cleaned.isNullOrBlank() && !isIndoorPathClear(cleaned)) {
+                if (!cleaned.isNullOrBlank() && !isPathClear(cleaned)) {
                     outdoorNavStatus = cleaned
                     lastProactiveHazardAlert = cleaned
                     val key = cleaned.lowercase().filter { it.isLetterOrDigit() }
@@ -3389,7 +3529,7 @@ class DrishtiViewModel(
                         lastOutdoorAiSpokenKey = key
                         lastOutdoorAiSpeakTime = now
                         // Don't talk over a fast-layer warning that just fired.
-                        if (now - lastOutdoorFastSpeakTime > 1500L) {
+                        if (now - lastFastSpeakTime > 1500L) {
                             currentSpeechJob?.cancel()
                             stopSpeaking()
                         }
@@ -3432,12 +3572,15 @@ class DrishtiViewModel(
         pendingSmartEnvironmentCount = 0
         lastSmartSpeakTime = 0L
         lastSmartSpokenKey = ""
-        lastOutdoorFastSpeakTime = 0L
-        lastOutdoorFastSpokenKey = ""
+        announcedObstacles.clear()
         smartNavStatus = "Sensing your surroundings"
         orbState = OrbState.IDLE
         speak(
-            "Starting navigation. I'll sense by myself whether you're indoors or outdoors, and warn you about everything in your path.",
+            phrase(
+                "Starting navigation. I'll sense by myself whether you're indoors or outdoors, and warn you about everything in your path.",
+                "रास्ता दिखाना शुरू कर रही हूँ. मैं खुद समझ जाऊंगी कि तुम अंदर हो या बाहर, और रास्ते की हर चीज़ बताऊंगी.",
+                "वाट दाखवणे सुरू करतेय. तू आत आहेस की बाहेर हे मी स्वतः ओळखेन, आणि रस्त्यातलं सगळं सांगेन."
+            ),
             SpeechPriority.NAVIGATION,
             bypassCooldown = true
         )
@@ -3456,7 +3599,7 @@ class DrishtiViewModel(
         smartNavEnvironment = ""
         lastSmartSpokenKey = ""
         if (announce) {
-            speak("Okay, I've stopped navigation.", SpeechPriority.NAVIGATION, bypassCooldown = true)
+            speak(phrase("Okay, I've stopped navigation.", "ठीक है, मैंने रास्ता दिखाना बंद कर दिया.", "ठीक आहे, मी वाट दाखवणे बंद केलं."), SpeechPriority.NAVIGATION, bypassCooldown = true)
         }
         orbState = OrbState.IDLE
     }
@@ -3562,7 +3705,7 @@ class DrishtiViewModel(
                         pendingSmartEnvironmentCount = 0
                     }
 
-                    if (body.isBlank() || isIndoorPathClear(body)) {
+                    if (body.isBlank() || isPathClear(body)) {
                         smartNavStatus = "Path looks clear"
                     } else {
                         smartNavStatus = body
@@ -3574,7 +3717,7 @@ class DrishtiViewModel(
                             lastSmartSpokenKey = key
                             lastSmartSpeakTime = now
                             // Don't talk over a fast-layer vehicle warning that just fired.
-                            if (now - lastOutdoorFastSpeakTime > 1500L) {
+                            if (now - lastFastSpeakTime > 1500L) {
                                 currentSpeechJob?.cancel()
                                 stopSpeaking()
                             }
@@ -3620,7 +3763,6 @@ class DrishtiViewModel(
         outdoorAiJob = null
         isOutdoorNavActive = false
         outdoorNavStatus = ""
-        lastOutdoorFastSpokenKey = ""
         lastOutdoorAiSpokenKey = ""
 
         // Smart auto indoor/outdoor navigation
@@ -3656,7 +3798,7 @@ class DrishtiViewModel(
         currentSpeechJob?.cancel()
         stopSpeaking()
         orbState = OrbState.IDLE
-        speak("Okay, I've stopped.", SpeechPriority.NAVIGATION, bypassCooldown = true)
+        speak(phrase("Okay, I've stopped.", "ठीक है, मैंने बंद कर दिया.", "ठीक आहे, मी बंद केलं."), SpeechPriority.NAVIGATION, bypassCooldown = true)
     }
 
     fun toggleIndoorNavigationMode() {
@@ -4536,8 +4678,8 @@ class DrishtiViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        outdoorDetector?.close()
-        outdoorDetector = null
+        obstacleDetector?.close()
+        obstacleDetector = null
         tts?.shutdown()
         try {
             mediaPlayer?.release()

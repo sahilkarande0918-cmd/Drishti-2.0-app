@@ -9,17 +9,21 @@ import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 
 /**
- * Fast on-device detector for the OUTDOOR navigation fast layer.
+ * Fast on-device detector behind the navigation fast layer, indoors and outdoors.
  *
  * Runs Google's EfficientDet-Lite0 (COCO classes) fully offline on each camera frame and
- * reports only street-relevant obstacles — vehicles, riders, people, animals, signs — with
- * a direction and proximity estimate. Static hazards COCO cannot represent (potholes,
- * poles, barricades, broken footpath) are covered by the cloud AI deep-scan layer that
- * runs alongside this detector.
+ * reports obstacles with a direction and proximity estimate. Pass [OUTDOOR_LABELS] for
+ * street hazards (vehicles, riders, people, animals) or [INDOOR_LABELS] for furniture and
+ * people you would walk into.
+ *
+ * Everything COCO has no class for — potholes, poles and barricades outdoors; stairs,
+ * doors, ramps and lifts indoors — is covered by the cloud AI deep-scan layer that runs
+ * alongside this detector. The point of this class is that a blind user hears the common
+ * cases in ~100ms instead of waiting on a network round-trip.
  *
  * [detect] is synchronous (~50-100ms); call it from a background thread only.
  */
-class OutdoorObstacleDetector(context: Context) {
+class ObstacleDetector(context: Context) {
 
     enum class Direction { LEFT, AHEAD, RIGHT }
 
@@ -46,8 +50,13 @@ class OutdoorObstacleDetector(context: Context) {
         detector = ObjectDetector.createFromOptions(context, options)
     }
 
-    /** Most dangerous obstacle first; empty list when nothing street-relevant is visible. */
-    fun detect(bitmap: Bitmap): List<Obstacle> {
+    /**
+     * Most dangerous obstacle first; empty list when nothing relevant is visible.
+     *
+     * [labels] selects which COCO classes count as an obstacle, so the same model serves
+     * the street (vehicles, riders, animals) and indoors (furniture you would walk into).
+     */
+    fun detect(bitmap: Bitmap, labels: Set<String> = OUTDOOR_LABELS): List<Obstacle> {
         val result = try {
             detector.detect(BitmapImageBuilder(bitmap).build())
         } catch (e: Exception) {
@@ -59,7 +68,7 @@ class OutdoorObstacleDetector(context: Context) {
         return result.detections().mapNotNull { detection ->
             val category = detection.categories().firstOrNull() ?: return@mapNotNull null
             val label = category.categoryName().lowercase()
-            if (label !in OUTDOOR_LABELS) return@mapNotNull null
+            if (label !in labels) return@mapNotNull null
             val box = detection.boundingBox()
             val heightFraction = (box.height() / frameHeight).coerceIn(0f, 1f)
             // Tiny boxes are distant objects — noise for someone walking.
@@ -107,6 +116,20 @@ class OutdoorObstacleDetector(context: Context) {
             "person", "bicycle", "car", "motorcycle", "bus", "truck", "train",
             "dog", "cow", "horse", "sheep", "cat",
             "traffic light", "stop sign", "fire hydrant", "bench", "parking meter"
+        )
+
+        /**
+         * COCO classes worth announcing indoors — things you walk into or trip over.
+         *
+         * Note what COCO cannot see: stairs, doors, ramps and lifts have no class here,
+         * and those are the most dangerous indoor features. The cloud vision layer stays
+         * responsible for them; this set exists so furniture and people are announced
+         * instantly instead of waiting on a network round-trip.
+         */
+        val INDOOR_LABELS = setOf(
+            "person", "chair", "couch", "bed", "dining table", "toilet",
+            "potted plant", "tv", "refrigerator", "oven", "sink", "microwave",
+            "suitcase", "backpack", "bicycle", "dog", "cat"
         )
     }
 }
