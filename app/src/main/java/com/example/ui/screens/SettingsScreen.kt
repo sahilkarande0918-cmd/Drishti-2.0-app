@@ -137,7 +137,7 @@ fun SettingsScreen(
                 text = "SYSTEM CONTROLS",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = SecondaryTactileCyan,
+                color = AccentSecondary,
                 letterSpacing = 1.5.sp
             )
 
@@ -145,7 +145,7 @@ fun SettingsScreen(
                 text = "Preferences Settings",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
-                color = PrimarySafetyYellow,
+                color = AccentPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
 
@@ -155,7 +155,7 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .padding(bottom = 16.dp),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, SecondaryTactileCyan.copy(alpha = 0.5f))
+                border = BorderStroke(1.dp, AccentSecondary.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -165,7 +165,7 @@ fun SettingsScreen(
                         Icon(
                             imageVector = Icons.Default.CloudQueue,
                             contentDescription = null,
-                            tint = SecondaryTactileCyan
+                            tint = AccentSecondary
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
@@ -217,7 +217,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = PrimarySafetyYellow)
+                        Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = AccentPrimary)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Speech Settings",
@@ -244,8 +244,8 @@ fun SettingsScreen(
                         valueRange = 0.5f..2.0f,
                         steps = 5,
                         colors = SliderDefaults.colors(
-                            thumbColor = PrimarySafetyYellow,
-                            activeTrackColor = PrimarySafetyYellow,
+                            thumbColor = AccentPrimary,
+                            activeTrackColor = AccentPrimary,
                             inactiveTrackColor = SurfaceCardDark
                         ),
                         modifier = Modifier
@@ -280,8 +280,8 @@ fun SettingsScreen(
                             checked = voiceFeedbackEnabled,
                             onCheckedChange = { onToggleVoiceFeedback(it) },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = PrimarySafetyYellow,
-                                checkedTrackColor = PrimarySafetyYellow.copy(alpha = 0.4f),
+                                checkedThumbColor = AccentPrimary,
+                                checkedTrackColor = AccentPrimary.copy(alpha = 0.4f),
                                 uncheckedThumbColor = IdleGray,
                                 uncheckedTrackColor = SurfaceCardDark
                             ),
@@ -300,7 +300,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = SurfaceCardDark),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = SecondaryTactileCyan)
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = AccentSecondary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Test Speech Synthesis Engine", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                     }
@@ -316,7 +316,7 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Face, contentDescription = null, tint = SecondaryTactileCyan)
+                        Icon(Icons.Default.Face, contentDescription = null, tint = AccentSecondary)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "How Drishti Talks To You",
@@ -347,7 +347,7 @@ fun SettingsScreen(
                                 onClick = { onUpdateGender(value) },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (selected) PrimarySafetyYellow else SurfaceCardDark
+                                    containerColor = if (selected) AccentPrimary else SurfaceCardDark
                                 ),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
@@ -372,14 +372,14 @@ fun SettingsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan
+                            focusedLabelColor = AccentSecondary
                         ),
                         singleLine = true,
                         trailingIcon = {
                             IconButton(onClick = { onUpdateGender(genderText) }) {
-                                Icon(Icons.Default.Check, contentDescription = "Save gender", tint = SecondaryTactileCyan)
+                                Icon(Icons.Default.Check, contentDescription = "Save gender", tint = AccentSecondary)
                             }
                         }
                     )
@@ -399,7 +399,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Sensors, contentDescription = null, tint = SecondaryTactileCyan)
+                        Icon(Icons.Default.Sensors, contentDescription = null, tint = AccentSecondary)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "RuView Person Detection",
@@ -443,8 +443,8 @@ fun SettingsScreen(
                             checked = isRuviewEnabled,
                             onCheckedChange = { onUpdateRuviewSettings(it, ruviewUrl) },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = PrimarySafetyYellow,
-                                checkedTrackColor = PrimarySafetyYellow.copy(alpha = 0.4f),
+                                checkedThumbColor = AccentPrimary,
+                                checkedTrackColor = AccentPrimary.copy(alpha = 0.4f),
                                 uncheckedThumbColor = IdleGray,
                                 uncheckedTrackColor = SurfaceCardDark
                             )
@@ -461,9 +461,9 @@ fun SettingsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan
+                            focusedLabelColor = AccentSecondary
                         ),
                         singleLine = true
                     )
@@ -478,7 +478,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = SurfaceCardDark),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, tint = SecondaryTactileCyan)
+                        Icon(Icons.Default.Save, contentDescription = null, tint = AccentSecondary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Save Server Configuration", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                     }
@@ -501,7 +501,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = SecondaryTactileCyan)
+                        Icon(Icons.Default.Email, contentDescription = null, tint = AccentSecondary)
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Direct Email Sender (SMTP)",
@@ -539,8 +539,8 @@ fun SettingsScreen(
                                 onUpdateSmtpSettings(it, smtpHost, smtpPort.toIntOrNull() ?: 465, smtpEmail, smtpPassword)
                             },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = PrimarySafetyYellow,
-                                checkedTrackColor = PrimarySafetyYellow.copy(alpha = 0.4f),
+                                checkedThumbColor = AccentPrimary,
+                                checkedTrackColor = AccentPrimary.copy(alpha = 0.4f),
                                 uncheckedThumbColor = IdleGray,
                                 uncheckedTrackColor = SurfaceCardDark
                             )
@@ -559,9 +559,9 @@ fun SettingsScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                focusedBorderColor = SecondaryTactileCyan,
+                                focusedBorderColor = AccentSecondary,
                                 unfocusedBorderColor = SurfaceCardDark,
-                                focusedLabelColor = SecondaryTactileCyan
+                                focusedLabelColor = AccentSecondary
                             ),
                             singleLine = true
                         )
@@ -576,9 +576,9 @@ fun SettingsScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                focusedBorderColor = SecondaryTactileCyan,
+                                focusedBorderColor = AccentSecondary,
                                 unfocusedBorderColor = SurfaceCardDark,
-                                focusedLabelColor = SecondaryTactileCyan
+                                focusedLabelColor = AccentSecondary
                             ),
                             singleLine = true
                         )
@@ -594,9 +594,9 @@ fun SettingsScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                focusedBorderColor = SecondaryTactileCyan,
+                                focusedBorderColor = AccentSecondary,
                                 unfocusedBorderColor = SurfaceCardDark,
-                                focusedLabelColor = SecondaryTactileCyan
+                                focusedLabelColor = AccentSecondary
                             ),
                             singleLine = true
                         )
@@ -612,9 +612,9 @@ fun SettingsScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
                                 unfocusedTextColor = Color.White,
-                                focusedBorderColor = SecondaryTactileCyan,
+                                focusedBorderColor = AccentSecondary,
                                 unfocusedBorderColor = SurfaceCardDark,
-                                focusedLabelColor = SecondaryTactileCyan
+                                focusedLabelColor = AccentSecondary
                             ),
                             singleLine = true
                         )
@@ -632,7 +632,7 @@ fun SettingsScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = SurfaceCardDark),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Save, contentDescription = null, tint = SecondaryTactileCyan)
+                            Icon(Icons.Default.Save, contentDescription = null, tint = AccentSecondary)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Save SMTP Configuration", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                         }
@@ -655,7 +655,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Shield, contentDescription = null, tint = SecondaryTactileCyan)
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = AccentSecondary)
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Guardian Credentials",
@@ -668,7 +668,7 @@ fun SettingsScreen(
                             Icon(
                                 imageVector = Icons.Default.Contacts,
                                 contentDescription = "Import from Contacts List",
-                                tint = PrimarySafetyYellow
+                                tint = AccentPrimary
                             )
                         }
                     }
@@ -686,9 +686,9 @@ fun SettingsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan
+                            focusedLabelColor = AccentSecondary
                         ),
                         singleLine = true
                     )
@@ -704,9 +704,9 @@ fun SettingsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan
+                            focusedLabelColor = AccentSecondary
                         ),
                         singleLine = true
                     )
@@ -721,9 +721,9 @@ fun SettingsScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan
+                            focusedLabelColor = AccentSecondary
                         ),
                         singleLine = true
                     )
@@ -741,7 +741,7 @@ fun SettingsScreen(
                             .height(50.dp)
                             .testTag("update_guardian_button"),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = SecondaryTactileCyan,
+                            containerColor = AccentSecondary,
                             contentColor = Color.Black
                         ),
                         shape = RoundedCornerShape(10.dp)

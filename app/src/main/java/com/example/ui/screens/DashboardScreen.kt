@@ -209,7 +209,7 @@ fun DashboardScreen(
                 // Glow 1: Top-Left Deep Blue
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(GeminiBlue.copy(alpha = 0.15f), Color.Transparent),
+                        colors = listOf(AccentPrimary.copy(alpha = 0.15f), Color.Transparent),
                         center = Offset(0f, 0f),
                         radius = canvasWidth * 0.9f
                     ),
@@ -220,7 +220,7 @@ fun DashboardScreen(
                 // Glow 2: Center-Right Warm Purple
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(GeminiPurple.copy(alpha = 0.10f), Color.Transparent),
+                        colors = listOf(AccentSecondary.copy(alpha = 0.10f), Color.Transparent),
                         center = Offset(canvasWidth, canvasHeight * 0.4f),
                         radius = canvasWidth * 1.0f
                     ),
@@ -231,7 +231,7 @@ fun DashboardScreen(
                 // Glow 3: Bottom-Left Purple
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(GeminiPurple.copy(alpha = 0.08f), Color.Transparent),
+                        colors = listOf(AccentSecondary.copy(alpha = 0.08f), Color.Transparent),
                         center = Offset(0f, canvasHeight),
                         radius = canvasWidth * 0.9f
                     ),
@@ -254,14 +254,14 @@ fun DashboardScreen(
             ) {
                 Column {
                     Text(
-                        text = "DRISHTI ASSIST",
+                        text = "दृष्टी",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = GeminiPurple,
+                        color = AccentSecondary,
                         letterSpacing = 2.sp
                     )
                     Text(
-                        text = "Hello, ${userProfile?.name ?: "User"}",
+                        text = "नमस्कार, ${userProfile?.name ?: "मित्र"}",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
                         color = Color.White
@@ -272,15 +272,15 @@ fun DashboardScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(DeepBlueButton)
-                        .border(BorderStroke(1.dp, GeminiGradient), CircleShape)
+                        .background(ButtonBlack)
+                        .border(BorderStroke(1.dp, AccentGradient), CircleShape)
                         .clickable { onNavigateToPage("settings") },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Settings",
-                        tint = GeminiGold,
+                        tint = AccentWarn,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -292,24 +292,9 @@ fun DashboardScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 40.dp),
-                pageSpacing = 16.dp
+                pageSpacing = 0.dp
             ) { page ->
-                val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
-                val scale = 1f - (kotlin.math.abs(pageOffset) * 0.12f).coerceIn(0f, 0.15f)
-                val alpha = 1f - (kotlin.math.abs(pageOffset) * 0.3f).coerceIn(0f, 0.4f)
-                val density = LocalDensity.current
-                val translationX = with(density) { pageOffset * 28.dp.toPx() }
-
-                PhoneMockup(
-                    modifier = Modifier
-                        .graphicsLayer {
-                            this.scaleX = scale
-                            this.scaleY = scale
-                            this.alpha = alpha
-                            this.translationX = -translationX
-                        }
-                ) {
+                PhonePage {
                     when (page) {
                         0 -> MockupVisionScreen(
                             viewModel = viewModel,
@@ -354,10 +339,10 @@ fun DashboardScreen(
                     val isSelected = pagerState.currentPage == index
                     val indicatorWidth by animateDpAsState(if (isSelected) 24.dp else 8.dp)
                     val indicatorColor = when (index) {
-                        0 -> GeminiBlue
-                        1 -> GeminiPurple
-                        2 -> GeminiBlue
-                        else -> SecondaryTactileCyan
+                        0 -> AccentPrimary
+                        1 -> AccentSecondary
+                        2 -> AccentPrimary
+                        else -> AccentSecondary
                     }
                     Box(
                         modifier = Modifier
@@ -386,50 +371,28 @@ fun DashboardScreen(
 // ------------------------------------
 // Mockup Phone Frame Shell Wrapper
 // ------------------------------------
+// Page container
+// ------------------------------------
+/**
+ * Plain full-bleed container for a pager page.
+ *
+ * This used to be PhoneMockup: a bordered card with a fake device notch drawn inside the
+ * real phone screen. A simulated bezel on an actual handset is a design-tool artefact -
+ * it read as a mockup rather than an app, and it spent roughly a third of the display on
+ * decoration, which matters doubly here because a low-vision user needs the largest
+ * possible targets and text.
+ */
 @Composable
-fun PhoneMockup(
+fun PhonePage(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Card(
+    Box(
         modifier = modifier
-            .fillMaxHeight(0.95f)
-            .fillMaxWidth()
-            .border(
-                border = BorderStroke(
-                    width = 2.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.25f),
-                            Color.White.copy(alpha = 0.05f)
-                        )
-                    )
-                ),
-                shape = RoundedCornerShape(32.dp)
-            ),
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        shape = RoundedCornerShape(32.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+            .fillMaxSize()
+            .background(BackgroundDark)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(8.dp)
-                .background(BackgroundDark, shape = RoundedCornerShape(26.dp))
-                .clip(RoundedCornerShape(26.dp))
-        ) {
-            content()
-
-            // Realistic Device Notch Overlay
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-                    .width(80.dp)
-                    .height(18.dp)
-                    .background(Color.Black, shape = RoundedCornerShape(9.dp))
-            )
-        }
+        content()
     }
 }
 
@@ -456,7 +419,8 @@ fun MockupVisionScreen(
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        // Full frame, uncropped - matches what the analyzer actually sees.
+                        scaleType = PreviewView.ScaleType.FIT_CENTER
                     }
                     val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                     cameraProviderFuture.addListener({
@@ -486,7 +450,7 @@ fun MockupVisionScreen(
                     .drawBehind {
                         val scanY = size.height * scanOffset
                         drawLine(
-                            color = GeminiBlue.copy(alpha = 0.5f),
+                            color = AccentPrimary.copy(alpha = 0.5f),
                             start = Offset(0f, scanY),
                             end = Offset(size.width, scanY),
                             strokeWidth = 3.dp.toPx()
@@ -498,7 +462,7 @@ fun MockupVisionScreen(
                     Icon(
                         imageVector = Icons.Default.Sensors,
                         contentDescription = null,
-                        tint = GeminiBlue.copy(alpha = 0.5f),
+                        tint = AccentPrimary.copy(alpha = 0.5f),
                         modifier = Modifier.size(48.dp)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -559,15 +523,15 @@ fun MockupVisionScreen(
                         }
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = DeepBlueButton),
-                border = BorderStroke(1.dp, GeminiGradient),
+                colors = ButtonDefaults.buttonColors(containerColor = ButtonBlack),
+                border = BorderStroke(1.dp, AccentGradient),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = AccentPrimary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("TAP TO SCAN", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
@@ -600,14 +564,14 @@ fun MockupVoiceAssistantScreen(
             modifier = Modifier.padding(top = 24.dp)
         ) {
             Text(
-                text = "GEMINI AGENT",
+                text = "आवाज सहाय्यक",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = GeminiPurple,
+                color = AccentSecondary,
                 letterSpacing = 2.sp
             )
             Text(
-                text = "Voice Assistant",
+                text = "मी ऐकतेय",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color.White
@@ -676,7 +640,7 @@ fun MockupVoiceAssistantScreen(
         // Active State Centered Text Below Torus
         Text(
             text = when (orbState) {
-                OrbState.IDLE -> "TAP SPHERE TO CHAT"
+                OrbState.IDLE -> "बोलण्यासाठी वर्तुळाला स्पर्श करा"
                 OrbState.LISTENING -> "Listening..."
                 OrbState.PROCESSING -> "Thinking..."
                 OrbState.EMERGENCY -> "SOS ALERTING"
@@ -684,38 +648,39 @@ fun MockupVoiceAssistantScreen(
             fontSize = 16.sp,
             fontWeight = FontWeight.ExtraBold,
             color = when (orbState) {
-                OrbState.EMERGENCY -> EmergencyCrimson
-                OrbState.LISTENING -> GeminiPurple
-                OrbState.PROCESSING -> GeminiBlue
+                OrbState.EMERGENCY -> EmergencyRed
+                OrbState.LISTENING -> AccentSecondary
+                OrbState.PROCESSING -> AccentPrimary
                 else -> Color.White
             },
             modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        // Transcript Panel Inside Phone mockup
-        Card(
+        // What Drishti last heard, on a frosted panel.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(100.dp),
-            colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-            border = BorderStroke(1.dp, GeminiGradient),
-            shape = RoundedCornerShape(12.dp)
+                .height(112.dp)
+                .outlinedTonalSurface(RoundedCornerShape(20.dp))
         ) {
-            Column(modifier = Modifier.padding(10.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 Text(
-                    text = "TRANSCRIPT",
-                    fontSize = 9.sp,
+                    text = "तू बोललास",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = GeminiPurple,
+                    // Not AccentSecondary: the deep brand red sits at roughly 2:1 on the
+                    // grey glass, which is unreadable for the low-vision users who rely on
+                    // this panel most.
+                    color = TextSecondaryDark,
                     letterSpacing = 1.sp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = transcript.ifBlank { "\"Vocal feedback inactive. Tap above to dictate.\"" },
-                    fontSize = 12.sp,
+                    text = transcript.ifBlank { "वर्तुळाला स्पर्श कर आणि बोल." },
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (transcript.isNotBlank()) Color.White else TextSecondaryDark,
-                    lineHeight = 16.sp,
+                    lineHeight = 22.sp,
                     maxLines = 3
                 )
             }
@@ -747,7 +712,7 @@ fun MockupNavigationScreen(
                 text = "GPS RADAR MAP",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = GeminiPurple,
+                color = AccentSecondary,
                 letterSpacing = 2.sp
             )
             Text(
@@ -771,7 +736,7 @@ fun MockupNavigationScreen(
 
                 // Outer Compass ring
                 drawCircle(
-                    color = GeminiBlue.copy(alpha = 0.2f),
+                    color = AccentPrimary.copy(alpha = 0.2f),
                     center = center,
                     radius = radius,
                     style = Stroke(width = 1.5.dp.toPx())
@@ -784,7 +749,7 @@ fun MockupNavigationScreen(
                 val tipY = center.y + arrowLen * sin(rad)
 
                 drawLine(
-                    color = GeminiPurple,
+                    color = AccentSecondary,
                     start = center,
                     end = Offset(tipX, tipY),
                     strokeWidth = 3.dp.toPx()
@@ -792,7 +757,7 @@ fun MockupNavigationScreen(
 
                 // Central radar sweep point
                 drawCircle(
-                    color = GeminiPurple,
+                    color = AccentSecondary,
                     center = center,
                     radius = 6.dp.toPx()
                 )
@@ -832,8 +797,8 @@ fun MockupNavigationScreen(
             ) {
                 Card(
                     modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-                    border = BorderStroke(1.dp, GeminiBlue),
+                    colors = CardDefaults.cardColors(containerColor = ButtonBlack),
+                    border = BorderStroke(1.dp, AccentPrimary),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(
@@ -846,8 +811,8 @@ fun MockupNavigationScreen(
                 }
                 Card(
                     modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-                    border = BorderStroke(1.dp, GeminiPurple),
+                    colors = CardDefaults.cardColors(containerColor = ButtonBlack),
+                    border = BorderStroke(1.dp, AccentSecondary),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(
@@ -865,7 +830,7 @@ fun MockupNavigationScreen(
             // Pulse Emergency SOS Action button
             Button(
                 onClick = { viewModel.activateEmergencySOS() },
-                colors = ButtonDefaults.buttonColors(containerColor = EmergencyCrimson),
+                colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -919,7 +884,7 @@ fun VoiceAssistantConsoleOverlay(
         ) {
             Text(
                 text = "DRISHTI A.I. VOICE INTERCOM",
-                color = GeminiPurple,
+                color = AccentSecondary,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 14.sp,
                 letterSpacing = 1.5.sp,
@@ -934,9 +899,9 @@ fun VoiceAssistantConsoleOverlay(
                     OrbState.EMERGENCY -> "EMERGENCY STATE ACTIVE!"
                 },
                 color = when (orbState) {
-                    OrbState.EMERGENCY -> EmergencyCrimson
-                    OrbState.LISTENING -> GeminiBlue
-                    else -> GeminiPurple
+                    OrbState.EMERGENCY -> EmergencyRed
+                    OrbState.LISTENING -> AccentPrimary
+                    else -> AccentSecondary
                 },
                 fontWeight = FontWeight.Black,
                 fontSize = 11.sp
@@ -977,8 +942,8 @@ fun VoiceAssistantConsoleOverlay(
             // Spoken text feedback panel
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-                border = BorderStroke(1.dp, GeminiGradient),
+                colors = CardDefaults.cardColors(containerColor = ButtonBlack),
+                border = BorderStroke(1.dp, AccentGradient),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
@@ -1008,15 +973,15 @@ fun VoiceAssistantConsoleOverlay(
                     ) {
                         Button(
                             onClick = { viewModel.replayLastSpeech() },
-                            colors = ButtonDefaults.buttonColors(containerColor = DeepBlueButton),
-                            border = BorderStroke(1.dp, GeminiBlue),
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonBlack),
+                            border = BorderStroke(1.dp, AccentPrimary),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .height(36.dp)
                                 .weight(1f)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = GeminiBlue, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.VolumeUp, contentDescription = null, tint = AccentPrimary, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Replay", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
@@ -1026,15 +991,15 @@ fun VoiceAssistantConsoleOverlay(
                                 viewModel.stopSpeaking()
                                 onMicTriggered()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = DeepBlueButton),
-                            border = BorderStroke(1.dp, EmergencyCrimson),
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonBlack),
+                            border = BorderStroke(1.dp, EmergencyRed),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier
                                 .height(36.dp)
                                 .weight(1f)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Mic, contentDescription = null, tint = EmergencyCrimson, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.Mic, contentDescription = null, tint = EmergencyRed, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Interrupt", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
@@ -1056,7 +1021,7 @@ fun VoiceAssistantConsoleOverlay(
                     unfocusedTextColor = Color.White,
                     focusedContainerColor = SurfaceDark,
                     unfocusedContainerColor = SurfaceDark,
-                    focusedBorderColor = GeminiPurple,
+                    focusedBorderColor = AccentSecondary,
                     unfocusedBorderColor = SurfaceCardDark
                 ),
                 shape = RoundedCornerShape(12.dp),
@@ -1070,7 +1035,7 @@ fun VoiceAssistantConsoleOverlay(
                             }
                         }
                     ) {
-                        Icon(Icons.Default.Send, contentDescription = "Send", tint = GeminiPurple)
+                        Icon(Icons.Default.Send, contentDescription = "Send", tint = AccentSecondary)
                     }
                 }
             )
@@ -1115,7 +1080,7 @@ fun VoiceAssistantConsoleOverlay(
                 }
                 Button(
                     onClick = { onSpeechSimulated("emergency") },
-                    colors = ButtonDefaults.buttonColors(containerColor = EmergencyCrimson.copy(alpha = 0.8f)),
+                    colors = ButtonDefaults.buttonColors(containerColor = EmergencyRed.copy(alpha = 0.8f)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("SOS Alert", color = Color.White, fontSize = 11.sp)
@@ -1127,15 +1092,15 @@ fun VoiceAssistantConsoleOverlay(
             // Exit Console Button
             Button(
                 onClick = onCloseConsole,
-                colors = ButtonDefaults.buttonColors(containerColor = DeepBlueButton),
-                border = BorderStroke(1.dp, EmergencyCrimson),
+                colors = ButtonDefaults.buttonColors(containerColor = ButtonBlack),
+                border = BorderStroke(1.dp, EmergencyRed),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Close, contentDescription = null, tint = EmergencyCrimson, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Close, contentDescription = null, tint = EmergencyRed, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("EXIT VOICE INTERCOM", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
                 }
@@ -1176,7 +1141,7 @@ fun MockupRuViewScreen(
                 text = "RUVIEW INDOOR RADAR",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = SecondaryTactileCyan,
+                color = AccentSecondary,
                 letterSpacing = 2.sp
             )
             Text(
@@ -1198,19 +1163,19 @@ fun MockupRuViewScreen(
                 val radius = size.width / 2.2f
 
                 drawCircle(
-                    color = SecondaryTactileCyan.copy(alpha = if (isScanning) 0.35f else 0.15f),
+                    color = AccentSecondary.copy(alpha = if (isScanning) 0.35f else 0.15f),
                     center = center,
                     radius = radius,
                     style = Stroke(width = 1.dp.toPx())
                 )
                 drawCircle(
-                    color = SecondaryTactileCyan.copy(alpha = if (isScanning) 0.25f else 0.1f),
+                    color = AccentSecondary.copy(alpha = if (isScanning) 0.25f else 0.1f),
                     center = center,
                     radius = radius * 0.66f,
                     style = Stroke(width = 1.dp.toPx())
                 )
                 drawCircle(
-                    color = SecondaryTactileCyan.copy(alpha = if (isScanning) 0.15f else 0.05f),
+                    color = AccentSecondary.copy(alpha = if (isScanning) 0.15f else 0.05f),
                     center = center,
                     radius = radius * 0.33f,
                     style = Stroke(width = 1.dp.toPx())
@@ -1222,7 +1187,7 @@ fun MockupRuViewScreen(
 
                 if (isActive || isScanning) {
                     drawLine(
-                        color = SecondaryTactileCyan.copy(alpha = if (isScanning) 0.8f else 0.3f),
+                        color = AccentSecondary.copy(alpha = if (isScanning) 0.8f else 0.3f),
                         start = center,
                         end = Offset(endX, endY),
                         strokeWidth = 2.dp.toPx()
@@ -1238,12 +1203,12 @@ fun MockupRuViewScreen(
                     )
                     for (i in 0 until (peopleCount.coerceAtMost(seedPoints.size))) {
                         drawCircle(
-                            color = PrimarySafetyYellow,
+                            color = AccentPrimary,
                             center = seedPoints[i],
                             radius = 6.dp.toPx()
                         )
                         drawCircle(
-                            color = PrimarySafetyYellow.copy(alpha = 0.4f),
+                            color = AccentPrimary.copy(alpha = 0.4f),
                             center = seedPoints[i],
                             radius = 12.dp.toPx(),
                             style = Stroke(width = 1.dp.toPx())
@@ -1274,8 +1239,8 @@ fun MockupRuViewScreen(
             ) {
                 Card(
                     modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-                    border = BorderStroke(1.dp, if (isConnected && isActive) SecondaryTactileCyan else Color.Transparent),
+                    colors = CardDefaults.cardColors(containerColor = ButtonBlack),
+                    border = BorderStroke(1.dp, if (isConnected && isActive) AccentSecondary else Color.Transparent),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(
@@ -1294,8 +1259,8 @@ fun MockupRuViewScreen(
                 }
                 Card(
                     modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
-                    border = BorderStroke(1.dp, if (presence && isActive) PrimarySafetyYellow else Color.Transparent),
+                    colors = CardDefaults.cardColors(containerColor = ButtonBlack),
+                    border = BorderStroke(1.dp, if (presence && isActive) AccentPrimary else Color.Transparent),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Column(
@@ -1313,7 +1278,7 @@ fun MockupRuViewScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = DeepBlueButton),
+                colors = CardDefaults.cardColors(containerColor = ButtonBlack),
                 border = BorderStroke(1.dp, SurfaceCardDark),
                 shape = RoundedCornerShape(10.dp)
             ) {
@@ -1365,7 +1330,7 @@ fun MockupRuViewScreen(
 
             Button(
                 onClick = { viewModel.scanRoomHeadcount() },
-                colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) SecondaryTactileCyan.copy(alpha = 0.5f) else SecondaryTactileCyan),
+                colors = ButtonDefaults.buttonColors(containerColor = if (isScanning) AccentSecondary.copy(alpha = 0.5f) else AccentSecondary),
                 shape = RoundedCornerShape(12.dp),
                 enabled = !isScanning,
                 modifier = Modifier
@@ -1439,12 +1404,17 @@ fun NativeVoiceOrb(
         else -> "idle"
     }
 
-    // Colors
-    val cyan = Color(0xFF00E5FF)
-    val purple = Color(0xFF7B2FBE)
-    val lavender = Color(0xFFA855F7)
-    val amber = Color(0xFFFFAA00)
-    val red = Color(0xFFFF1111)
+    // Orb palette. State is carried by MOTION - speed, pulse depth, particles - as much as
+    // by hue, so it still reads as idle / listening / thinking to someone who cannot
+    // separate the colours, and emergency stays the only red on screen.
+    // State is carried by MOTION as much as by hue - speed, pulse depth and particles -
+    // so the orb still reads as idle / listening / thinking to anyone who cannot separate
+    // the colours, and emergency stays the only red thing on screen.
+    val accentBright = AccentPrimary
+    val accentDeep = AccentSecondary
+    val accentPale = Color(0xFFD3E3FD)
+    val amber = AccentWarn
+    val red = EmergencyRed
 
     val color1: Color
     val color2: Color
@@ -1455,32 +1425,32 @@ fun NativeVoiceOrb(
 
     when (stateKey) {
         "idle" -> {
-            color1 = cyan; color2 = purple
+            color1 = accentBright; color2 = accentDeep
             speed = 0.6f; pulseAmt = 0.03f
             showParticles = false; volReactive = false
         }
         "listening" -> {
-            color1 = cyan; color2 = lavender
+            color1 = accentPale; color2 = accentBright
             speed = 1.0f; pulseAmt = 0.08f
             showParticles = false; volReactive = true
         }
         "thinking" -> {
-            color1 = amber; color2 = Color(0xFFFF6600)
+            color1 = amber; color2 = Color(0xFFFF8A00)
             speed = 0.8f; pulseAmt = 0.04f
             showParticles = false; volReactive = false
         }
         "speaking" -> {
-            color1 = lavender; color2 = cyan
+            color1 = accentBright; color2 = accentPale
             speed = 1.4f; pulseAmt = 0.1f
             showParticles = true; volReactive = true
         }
         "emergency" -> {
-            color1 = red; color2 = Color(0xFFFF4444)
+            color1 = red; color2 = Color(0xFFFF5A67)
             speed = 2.0f; pulseAmt = 0.12f
             showParticles = true; volReactive = true
         }
         else -> {
-            color1 = cyan; color2 = purple
+            color1 = accentBright; color2 = accentDeep
             speed = 0.6f; pulseAmt = 0.03f
             showParticles = false; volReactive = false
         }

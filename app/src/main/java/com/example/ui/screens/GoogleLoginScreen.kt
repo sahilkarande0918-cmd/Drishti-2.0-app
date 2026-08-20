@@ -108,7 +108,7 @@ fun GoogleLoginScreen(
                     drawRect(
                         Brush.verticalGradient(
                             colors = listOf(
-                                TertiaryAmber.copy(alpha = 0.12f),
+                                AccentTertiary.copy(alpha = 0.12f),
                                 Color.Transparent
                             )
                         )
@@ -138,7 +138,7 @@ fun GoogleLoginScreen(
                 Icon(
                     imageVector = Icons.Default.AccountCircle,
                     contentDescription = null,
-                    tint = PrimarySafetyYellow,
+                    tint = AccentPrimary,
                     modifier = Modifier.size(52.dp)
                 )
             }
@@ -148,7 +148,7 @@ fun GoogleLoginScreen(
             Text(
                 text = "SIGN IN WITH GOOGLE",
                 fontSize = 12.sp,
-                color = SecondaryTactileCyan,
+                color = AccentSecondary,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp
             )
@@ -173,7 +173,7 @@ fun GoogleLoginScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(1.dp, PrimarySafetyYellow),
+                    border = BorderStroke(1.dp, AccentPrimary),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(
@@ -182,7 +182,7 @@ fun GoogleLoginScreen(
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        CircularProgressIndicator(color = PrimarySafetyYellow)
+                        CircularProgressIndicator(color = AccentPrimary)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = statusText.ifEmpty { "Authorizing with Google..." },
@@ -210,7 +210,7 @@ fun GoogleLoginScreen(
                         .height(84.dp)
                         .testTag("google_authorize_btn"),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimarySafetyYellow,
+                        containerColor = AccentPrimary,
                         contentColor = Color.Black
                     ),
                     shape = RoundedCornerShape(20.dp),

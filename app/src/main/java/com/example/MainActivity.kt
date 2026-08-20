@@ -583,7 +583,12 @@ class MainActivity : ComponentActivity() {
                 // Register global voice actions event receiver
                 LaunchedEffect(Unit) {
                     dViewModel.navigationEvents.collect { route ->
-                        if (route.isNotBlank() && currentRoute != route) {
+                        // Ask the controller where we are now. This used to compare against
+                        // `currentRoute`, which LaunchedEffect(Unit) captures once at first
+                        // composition and never updates, so the guard was testing a route
+                        // that had long since gone stale.
+                        val here = navController.currentDestination?.route
+                        if (route.isNotBlank() && here != route) {
                             navController.navigate(route) {
                                 popUpTo("dashboard") { saveState = true }
                                 launchSingleTop = true
@@ -595,11 +600,11 @@ class MainActivity : ComponentActivity() {
 
                 // Bottom Tab Items definition
                 val navTabs = listOf(
-                    NavTabItem("dashboard", Icons.Default.Mic, "Dashboard"),
-                    NavTabItem("vision", Icons.Default.PhotoCamera, "AI Vision"),
-                    NavTabItem("navigation", Icons.Default.DirectionsWalk, "Compass Map"),
-                    NavTabItem("sos", Icons.Default.Shield, "SOS Rescue"),
-                    NavTabItem("settings", Icons.Default.Settings, "Settings")
+                    NavTabItem("dashboard", Icons.Default.Mic, "मुख्य"),
+                    NavTabItem("vision", Icons.Default.PhotoCamera, "कॅमेरा"),
+                    NavTabItem("navigation", Icons.Default.DirectionsWalk, "नकाशा"),
+                    NavTabItem("sos", Icons.Default.Shield, "मदत"),
+                    NavTabItem("settings", Icons.Default.Settings, "सेटिंग")
                 )
 
                 // Automatic Permanent Login Guards
@@ -627,7 +632,7 @@ class MainActivity : ComponentActivity() {
                         if (isCoreRoute) {
                             FloatingActionButton(
                                 onClick = triggerSpeechCapture,
-                                containerColor = PrimarySafetyYellow,
+                                containerColor = AccentPrimary,
                                 contentColor = Color.Black,
                                 shape = CircleShape,
                                 modifier = Modifier
@@ -653,12 +658,13 @@ class MainActivity : ComponentActivity() {
                                     .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                             ) {
                                 NavigationBar(
-                                    containerColor = SurfaceDark.copy(alpha = 0.95f),
+                                    // Transparent so the glass layer below shows through;
+                                    // NavigationBar would otherwise paint over it.
+                                    containerColor = Color.Transparent,
                                     tonalElevation = 0.dp,
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)), RoundedCornerShape(20.dp))
+                                        .tonalSurface(RoundedCornerShape(28.dp), strong = true)
                                 ) {
                                     navTabs.forEach { tab ->
                                         val isSelected = currentRoute == tab.route
@@ -684,11 +690,11 @@ class MainActivity : ComponentActivity() {
                                                     text = tab.label,
                                                     fontSize = 11.sp,
                                                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                                                    color = if (isSelected) PrimarySafetyYellow else TextSecondaryDark
+                                                    color = if (isSelected) AccentPrimary else TextSecondaryDark
                                                 )
                                             },
                                             colors = NavigationBarItemDefaults.colors(
-                                                indicatorColor = PrimarySafetyYellow
+                                                indicatorColor = AccentPrimary
                                             )
                                         )
                                     }

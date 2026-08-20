@@ -53,7 +53,7 @@ fun LandingScreen(
                 .drawBehind {
                     val brush = Brush.radialGradient(
                         colors = listOf(
-                            PrimarySafetyYellow.copy(alpha = 0.15f),
+                            AccentPrimary.copy(alpha = 0.15f),
                             Color.Transparent
                         ),
                         center = Offset(size.width / 2f, 80.dp.toPx()),
@@ -90,7 +90,7 @@ fun LandingScreen(
                     .background(SurfaceDark)
                     .drawBehind {
                         drawCircle(
-                            color = PrimarySafetyYellow.copy(alpha = 0.08f),
+                            color = AccentPrimary.copy(alpha = 0.08f),
                             radius = (48.dp * iconScale).toPx()
                         )
                     }
@@ -100,7 +100,7 @@ fun LandingScreen(
                 Icon(
                     imageVector = Icons.Default.Visibility,
                     contentDescription = "Drishti Eye Branding Logo",
-                    tint = PrimarySafetyYellow,
+                    tint = AccentPrimary,
                     modifier = Modifier.size(54.dp)
                 )
             }
@@ -112,7 +112,7 @@ fun LandingScreen(
                 text = "Drishti",
                 fontSize = 44.sp,
                 fontWeight = FontWeight.Black,
-                color = PrimarySafetyYellow,
+                color = AccentPrimary,
                 textAlign = TextAlign.Center,
                 letterSpacing = 1.sp
             )
@@ -150,7 +150,7 @@ fun LandingScreen(
                     .height(64.dp)
                     .testTag("launch_drishti_button"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PrimarySafetyYellow,
+                    containerColor = AccentPrimary,
                     contentColor = Color.Black
                 ),
                 shape = RoundedCornerShape(16.dp),
@@ -185,7 +185,7 @@ fun LandingScreen(
                     text = "ACCESSIBILITY FEATURES READY",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = SecondaryTactileCyan,
+                    color = AccentSecondary,
                     letterSpacing = 2.sp,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
@@ -234,13 +234,13 @@ fun FeatureCard(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(PrimarySafetyYellow.copy(alpha = 0.1f)),
+                    .background(AccentPrimary.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = PrimarySafetyYellow,
+                    tint = AccentPrimary,
                     modifier = Modifier.size(24.dp)
                 )
             }

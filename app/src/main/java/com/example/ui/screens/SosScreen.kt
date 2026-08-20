@@ -68,7 +68,7 @@ fun SosScreen(
                 text = "EMERGENCY GUARDIAN PANEL",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = EmergencyCrimson,
+                color = EmergencyRed,
                 letterSpacing = 1.5.sp
             )
 
@@ -76,7 +76,7 @@ fun SosScreen(
                 text = "SOS Safety Shield",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
-                color = PrimarySafetyYellow,
+                color = AccentPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
             )
 
@@ -100,7 +100,7 @@ fun SosScreen(
                     modifier = Modifier
                         .size(150.dp)
                         .clip(CircleShape)
-                        .background(EmergencyCrimson.copy(alpha = 0.2f * (2f - pulseScale)))
+                        .background(EmergencyRed.copy(alpha = 0.2f * (2f - pulseScale)))
                 )
 
                 Box(
@@ -109,7 +109,7 @@ fun SosScreen(
                         .clip(CircleShape)
                         .background(
                             Brush.radialGradient(
-                                colors = listOf(EmergencyCrimson, Color(0xFFC62828))
+                                colors = listOf(EmergencyRed, Color(0xFFC62828))
                             )
                         )
                         .clickable { onTriggerSos() }
@@ -131,7 +131,7 @@ fun SosScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, if (guardian != null) SecondaryTactileCyan.copy(alpha = 0.4f) else SurfaceCardDark)
+                border = BorderStroke(1.dp, if (guardian != null) AccentSecondary.copy(alpha = 0.4f) else SurfaceCardDark)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -143,10 +143,10 @@ fun SosScreen(
                             text = "ACTIVE EMERGENCY RESPONDER",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SecondaryTactileCyan,
+                            color = AccentSecondary,
                             letterSpacing = 1.sp
                         )
-                        Icon(Icons.Default.Shield, contentDescription = null, tint = SecondaryTactileCyan, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Shield, contentDescription = null, tint = AccentSecondary, modifier = Modifier.size(16.dp))
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -175,7 +175,7 @@ fun SosScreen(
                             text = "No guardian registered yet.",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
-                            color = EmergencyCrimson
+                            color = EmergencyRed
                         )
                     }
                 }
@@ -193,7 +193,7 @@ fun SosScreen(
                     text = "HISTORICAL ALERTS LOG",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimarySafetyYellow,
+                    color = AccentPrimary,
                     letterSpacing = 1.sp
                 )
 
@@ -202,7 +202,7 @@ fun SosScreen(
                         text = "Clear All",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = EmergencyCrimson,
+                        color = EmergencyRed,
                         modifier = Modifier.clickable { onClearHistory() }
                     )
                 }
@@ -258,10 +258,10 @@ fun SosScreen(
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
-                                        .background(EmergencyCrimson.copy(alpha = 0.1f)),
+                                        .background(EmergencyRed.copy(alpha = 0.1f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.NotificationImportant, contentDescription = null, tint = EmergencyCrimson, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.NotificationImportant, contentDescription = null, tint = EmergencyRed, modifier = Modifier.size(18.dp))
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {

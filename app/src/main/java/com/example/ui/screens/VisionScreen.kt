@@ -168,7 +168,12 @@ fun VisionScreen(
     // --- AI Indoor Navigation: feed live camera frames to the AI vision layer ---
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val previewView = remember {
-        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+        PreviewView(context).apply {
+        // FIT_CENTER, not FILL_CENTER: the preview must show the whole camera frame.
+        // The analyzer always receives the full sensor image, so cropping the preview
+        // meant Drishti described things that were never visible on screen.
+        scaleType = PreviewView.ScaleType.FIT_CENTER
+    }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -235,10 +240,10 @@ fun VisionScreen(
         ) {
             // Screen Header
             Text(
-                text = "DRISHTI A.I. VISION",
+                text = "दृष्टी कॅमेरा",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = SecondaryTactileCyan,
+                color = AccentSecondary,
                 letterSpacing = 1.5.sp
             )
 
@@ -246,7 +251,7 @@ fun VisionScreen(
                 text = "Smart Camera Agent",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
-                color = PrimarySafetyYellow,
+                color = AccentPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
             )
 
@@ -256,15 +261,15 @@ fun VisionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
-                    colors = CardDefaults.cardColors(containerColor = EmergencyCrimson.copy(alpha = 0.2f)),
-                    border = BorderStroke(1.5.dp, EmergencyCrimson),
+                    colors = CardDefaults.cardColors(containerColor = EmergencyRed.copy(alpha = 0.2f)),
+                    border = BorderStroke(1.5.dp, EmergencyRed),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Warning, contentDescription = "Hazard Alert", tint = EmergencyCrimson, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.Warning, contentDescription = "Hazard Alert", tint = EmergencyRed, modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = viewModel.lastProactiveHazardAlert,
@@ -285,7 +290,7 @@ fun VisionScreen(
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
                     border = BorderStroke(
                         if (viewModel.isWalkWithMeActive) 2.dp else 1.5.dp,
-                        if (viewModel.isWalkWithMeActive) PrimarySafetyYellow else Color.Green
+                        if (viewModel.isWalkWithMeActive) AccentPrimary else Color.Green
                     ),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -297,7 +302,7 @@ fun VisionScreen(
                             modifier = Modifier
                                 .size(10.dp)
                                 .clip(CircleShape)
-                                .background(if (viewModel.isWalkWithMeActive) PrimarySafetyYellow else Color.Green)
+                                .background(if (viewModel.isWalkWithMeActive) AccentPrimary else Color.Green)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -324,7 +329,7 @@ fun VisionScreen(
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(2.dp, SecondaryTactileCyan),
+                    border = BorderStroke(2.dp, AccentSecondary),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Row(
@@ -335,7 +340,7 @@ fun VisionScreen(
                             modifier = Modifier
                                 .size(10.dp)
                                 .clip(CircleShape)
-                                .background(SecondaryTactileCyan)
+                                .background(AccentSecondary)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
@@ -380,7 +385,7 @@ fun VisionScreen(
                     .border(
                         BorderStroke(
                             2.dp,
-                            if (isAnalyzing) SecondaryTactileCyan else PrimarySafetyYellow
+                            if (isAnalyzing) AccentSecondary else AccentPrimary
                         ),
                         RoundedCornerShape(24.dp)
                     )
@@ -408,7 +413,7 @@ fun VisionScreen(
                             .drawBehind {
                                 val scanY = size.height * scanOffset
                                 drawLine(
-                                    color = PrimarySafetyYellow.copy(alpha = 0.5f),
+                                    color = AccentPrimary.copy(alpha = 0.5f),
                                     start = androidx.compose.ui.geometry.Offset(0f, scanY),
                                     end = androidx.compose.ui.geometry.Offset(size.width, scanY),
                                     strokeWidth = 4.dp.toPx()
@@ -420,7 +425,7 @@ fun VisionScreen(
                             Icon(
                                 imageVector = Icons.Default.Sensors,
                                 contentDescription = null,
-                                tint = PrimarySafetyYellow.copy(alpha = 0.6f),
+                                tint = AccentPrimary.copy(alpha = 0.6f),
                                 modifier = Modifier.size(56.dp)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
@@ -450,8 +455,8 @@ fun VisionScreen(
                         .padding(12.dp)
                 ) {
                     Text(
-                        text = if (isAnalyzing) "Processing surroundings..." else "TAP ANYWHERE TO SCAN",
-                        color = if (isAnalyzing) SecondaryTactileCyan else Color.White,
+                        text = if (isAnalyzing) "बघतेय..." else "स्कॅन करण्यासाठी कुठेही स्पर्श करा",
+                        color = if (isAnalyzing) AccentSecondary else Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = TextAlign.Center,
@@ -467,7 +472,7 @@ fun VisionScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(1.dp, PrimarySafetyYellow.copy(alpha = 0.3f)),
+                    border = BorderStroke(1.dp, AccentPrimary.copy(alpha = 0.3f)),
                     shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -475,16 +480,16 @@ fun VisionScreen(
                             text = "LATEST VERBAL DESCRIPTION",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = PrimarySafetyYellow,
+                            color = AccentPrimary,
                             letterSpacing = 1.sp,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
 
                         if (isAnalyzing) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(color = SecondaryTactileCyan, modifier = Modifier.size(16.dp))
+                                CircularProgressIndicator(color = AccentSecondary, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Text("Analyzing frame with camera intelligence...", color = SecondaryTactileCyan, fontSize = 12.sp)
+                                Text("Analyzing frame with camera intelligence...", color = AccentSecondary, fontSize = 12.sp)
                             }
                         } else {
                             val displayText = if (aiDescriptionResult.isNotBlank()) aiDescriptionResult else aiTextReaderResult
@@ -509,13 +514,13 @@ fun VisionScreen(
                 border = BorderStroke(1.dp, SurfaceCardDark)
             ) {
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Mic, contentDescription = null, tint = PrimarySafetyYellow, modifier = Modifier.size(24.dp))
+                    Icon(Icons.Default.Mic, contentDescription = null, tint = AccentPrimary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "VOICE AGENT ACTIVE",
+                        text = "ऐकतेय",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = SecondaryTactileCyan
+                        color = AccentSecondary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(

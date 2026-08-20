@@ -120,7 +120,7 @@ fun PermissionsGateScreen(
                     drawRect(
                         Brush.verticalGradient(
                             colors = listOf(
-                                PrimarySafetyYellow.copy(alpha = 0.12f),
+                                AccentPrimary.copy(alpha = 0.12f),
                                 Color.Transparent
                             )
                         )
@@ -155,7 +155,7 @@ fun PermissionsGateScreen(
                         text = "INITIALIZATION",
                         fontSize = 32.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = PrimarySafetyYellow,
+                        color = AccentPrimary,
                         lineHeight = 32.sp,
                         letterSpacing = 1.sp
                     )
@@ -164,7 +164,7 @@ fun PermissionsGateScreen(
                         text = "//////////",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
-                        color = PrimarySafetyYellow.copy(alpha = 0.85f),
+                        color = AccentPrimary.copy(alpha = 0.85f),
                         letterSpacing = (-2).sp
                     )
                 }
@@ -234,7 +234,7 @@ fun PermissionsGateScreen(
                     .height(64.dp)
                     .testTag("request_onboarding_permissions_btn"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PrimarySafetyYellow,
+                    containerColor = AccentPrimary,
                     contentColor = Color.Black
                 ),
                 shape = RoundedCornerShape(16.dp),
@@ -274,7 +274,7 @@ fun PermissionsGateScreen(
             ) {
                 Text(
                     text = if (isReady) "CONTINUE TO LOGIN →" else "PROCEED ANYWAY WITH LIMITED FEATURES",
-                    color = if (isReady) SecondaryTactileCyan else TextSecondaryDark,
+                    color = if (isReady) AccentSecondary else TextSecondaryDark,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     letterSpacing = 1.sp
@@ -318,7 +318,7 @@ fun PermissionItemCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isGranted) Color(0xFF7EFF22) else PrimarySafetyYellow,
+                    tint = if (isGranted) Color(0xFF7EFF22) else AccentPrimary,
                     modifier = Modifier.size(22.dp)
                 )
             }

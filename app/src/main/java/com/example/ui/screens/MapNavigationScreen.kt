@@ -119,7 +119,7 @@ fun MapNavigationScreen(
                         text = "REAL-TIME 3D NAVIGATION",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = PrimarySafetyYellow,
+                        color = AccentPrimary,
                         letterSpacing = 1.5.sp
                     )
                     Text(
@@ -145,13 +145,13 @@ fun MapNavigationScreen(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(PrimarySafetyYellow.copy(alpha = 0.1f)),
+                            .background(AccentPrimary.copy(alpha = 0.1f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.MyLocation,
                             contentDescription = null,
-                            tint = PrimarySafetyYellow,
+                            tint = AccentPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -161,7 +161,7 @@ fun MapNavigationScreen(
                             text = "CURRENT GPS LOCATION",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SecondaryTactileCyan
+                            color = AccentSecondary
                         )
                         Text(
                             text = currentAddress,
@@ -187,7 +187,7 @@ fun MapNavigationScreen(
                     text = "A.I. MEMORY OF PLACES",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimarySafetyYellow,
+                    color = AccentPrimary,
                     letterSpacing = 1.5.sp,
                     modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp)
                 )
@@ -204,7 +204,7 @@ fun MapNavigationScreen(
                                     viewModel.navigateToSavedPlace(place)
                                 },
                             colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                            border = BorderStroke(1.dp, GeminiPurple.copy(alpha = 0.5f)),
+                            border = BorderStroke(1.dp, AccentSecondary.copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -217,7 +217,7 @@ fun MapNavigationScreen(
                                         Icon(
                                             imageVector = Icons.Default.Place,
                                             contentDescription = null,
-                                            tint = GeminiPurple,
+                                            tint = AccentSecondary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
@@ -237,7 +237,7 @@ fun MapNavigationScreen(
                                         Icon(
                                             imageVector = Icons.Default.Navigation,
                                             contentDescription = "Navigate to ${place.name}",
-                                            tint = PrimarySafetyYellow
+                                            tint = AccentPrimary
                                         )
                                     }
                                 }
@@ -261,7 +261,7 @@ fun MapNavigationScreen(
                                                 Icon(
                                                     imageVector = Icons.Default.Visibility,
                                                     contentDescription = null,
-                                                    tint = SecondaryTactileCyan,
+                                                    tint = AccentSecondary,
                                                     modifier = Modifier.size(14.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
@@ -269,7 +269,7 @@ fun MapNavigationScreen(
                                                     text = "Visual Memory",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = SecondaryTactileCyan
+                                                    color = AccentSecondary
                                                 )
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
@@ -305,7 +305,7 @@ fun MapNavigationScreen(
                 onValueChange = { searchQuery = it },
                 label = { Text("Search location to navigate...") },
                 placeholder = { Text("e.g. Central Market, Pune") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = PrimarySafetyYellow) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AccentPrimary) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("destination_search_input"),
@@ -319,9 +319,9 @@ fun MapNavigationScreen(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
-                    focusedBorderColor = PrimarySafetyYellow,
+                    focusedBorderColor = AccentPrimary,
                     unfocusedBorderColor = SurfaceCardDark,
-                    focusedLabelColor = PrimarySafetyYellow,
+                    focusedLabelColor = AccentPrimary,
                     unfocusedLabelColor = TextSecondaryDark
                 ),
                 singleLine = true
@@ -345,10 +345,10 @@ fun MapNavigationScreen(
                         contentColor = Color.White
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, PrimarySafetyYellow)
+                    border = BorderStroke(1.dp, AccentPrimary)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = PrimarySafetyYellow)
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = AccentPrimary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Where Am I?", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
@@ -366,7 +366,7 @@ fun MapNavigationScreen(
                         .height(54.dp)
                         .testTag("route_navigate_button"),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = PrimarySafetyYellow,
+                        containerColor = AccentPrimary,
                         contentColor = Color.Black
                     ),
                     shape = RoundedCornerShape(12.dp)
@@ -382,9 +382,9 @@ fun MapNavigationScreen(
             if (isCalculating) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(color = PrimarySafetyYellow, modifier = Modifier.size(18.dp))
+                    CircularProgressIndicator(color = AccentPrimary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("Calculating optimal route segments...", color = PrimarySafetyYellow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Calculating optimal route segments...", color = AccentPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
 
@@ -442,7 +442,7 @@ fun MapNavigationScreen(
                         Icon(
                             imageVector = Icons.Default.PinDrop,
                             contentDescription = null,
-                            tint = PrimarySafetyYellow,
+                            tint = AccentPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -460,7 +460,7 @@ fun MapNavigationScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    border = BorderStroke(1.5.dp, PrimarySafetyYellow),
+                    border = BorderStroke(1.5.dp, AccentPrimary),
                     shape = RoundedCornerShape(20.dp)
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
@@ -473,7 +473,7 @@ fun MapNavigationScreen(
                                 modifier = Modifier
                                     .size(72.dp)
                                     .clip(CircleShape)
-                                    .background(PrimarySafetyYellow),
+                                    .background(AccentPrimary),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -498,7 +498,7 @@ fun MapNavigationScreen(
                                     text = "for ${step.distance?.toInt() ?: 200} meters",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = PrimarySafetyYellow,
+                                    color = AccentPrimary,
                                     modifier = Modifier.padding(top = 2.dp)
                                 )
                                  val remainingSteps = activeSteps.drop(currentStepIndex)
@@ -577,7 +577,7 @@ fun MapNavigationScreen(
                                 .fillMaxWidth()
                                 .height(52.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = PrimarySafetyYellow,
+                                containerColor = AccentPrimary,
                                 contentColor = Color.Black
                             ),
                             shape = RoundedCornerShape(12.dp)
@@ -599,7 +599,7 @@ fun MapNavigationScreen(
                     text = "UPCOMING ROUTE SEGMENTS",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = PrimarySafetyYellow,
+                    color = AccentPrimary,
                     letterSpacing = 1.sp,
                     modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp)
                 )
@@ -626,7 +626,7 @@ fun MapNavigationScreen(
                                     text = "${String.format("%.1f", (futureStep.distance ?: 120.0) / 1000.0)} KM",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = PrimarySafetyYellow
+                                    color = AccentPrimary
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
                                 Column {
@@ -659,7 +659,7 @@ fun MapNavigationScreen(
                                 Icon(
                                     imageVector = Icons.Default.VolumeUp,
                                     contentDescription = "Speak next block directions",
-                                    tint = SecondaryTactileCyan,
+                                    tint = AccentSecondary,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -676,7 +676,7 @@ fun MapNavigationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, if (viewModel.isIndoorMode) SecondaryTactileCyan else SurfaceCardDark),
+                border = BorderStroke(1.dp, if (viewModel.isIndoorMode) AccentSecondary else SurfaceCardDark),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -690,13 +690,13 @@ fun MapNavigationScreen(
                                 modifier = Modifier
                                     .size(32.dp)
                                     .clip(CircleShape)
-                                    .background(if (viewModel.isIndoorMode) SecondaryTactileCyan.copy(alpha = 0.15f) else Color.DarkGray),
+                                    .background(if (viewModel.isIndoorMode) AccentSecondary.copy(alpha = 0.15f) else Color.DarkGray),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Bluetooth,
                                     contentDescription = null,
-                                    tint = if (viewModel.isIndoorMode) SecondaryTactileCyan else Color.Gray,
+                                    tint = if (viewModel.isIndoorMode) AccentSecondary else Color.Gray,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -719,8 +719,8 @@ fun MapNavigationScreen(
                             checked = viewModel.isIndoorMode,
                             onCheckedChange = { viewModel.toggleIndoorNavigationMode() },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = PrimarySafetyYellow,
-                                checkedTrackColor = SecondaryTactileCyan
+                                checkedThumbColor = AccentPrimary,
+                                checkedTrackColor = AccentSecondary
                             )
                         )
                     }
@@ -770,7 +770,7 @@ fun MapNavigationScreen(
             Card(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, SecondaryTactileCyan.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, AccentSecondary.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -781,7 +781,7 @@ fun MapNavigationScreen(
                         Icon(
                             imageVector = Icons.Default.LocationOn,
                             contentDescription = null,
-                            tint = PrimarySafetyYellow,
+                            tint = AccentPrimary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -803,7 +803,7 @@ fun MapNavigationScreen(
                         label = { Text("Landmark Name (e.g. Office Desk)", color = TextSecondaryDark) },
                         placeholder = { Text("Describe coordinates label to pin", color = Color.Gray) },
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White
@@ -834,7 +834,7 @@ fun MapNavigationScreen(
                                 viewModel.learnPersonalLandmarkTag("Elevator Entrance Doorway")
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimarySafetyYellow),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentPrimary),
                         modifier = Modifier.fillMaxWidth().height(44.dp)
                     ) {
                         Text("Record Current Coordinates", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -846,7 +846,7 @@ fun MapNavigationScreen(
                             text = "Learned Customized Landmark Pins:",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = PrimarySafetyYellow
+                            color = AccentPrimary
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         viewModel.learnedLandmarks.take(4).forEach { landmark ->
@@ -858,7 +858,7 @@ fun MapNavigationScreen(
                                     modifier = Modifier.padding(10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.PinDrop, contentDescription = null, tint = SecondaryTactileCyan, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.PinDrop, contentDescription = null, tint = AccentSecondary, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Column {
                                         Text(landmark.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)

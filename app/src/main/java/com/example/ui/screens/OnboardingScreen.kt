@@ -108,7 +108,7 @@ fun OnboardingScreen(
                 text = "SETUP PROFILE",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = SecondaryTactileCyan,
+                color = AccentSecondary,
                 letterSpacing = 2.sp
             )
 
@@ -116,7 +116,7 @@ fun OnboardingScreen(
                 text = "Welcome to Drishti",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
-                color = PrimarySafetyYellow,
+                color = AccentPrimary,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
             )
 
@@ -132,7 +132,7 @@ fun OnboardingScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, PrimarySafetyYellow.copy(alpha = 0.3f)),
+                border = BorderStroke(1.dp, AccentPrimary.copy(alpha = 0.3f)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -140,7 +140,7 @@ fun OnboardingScreen(
                         text = "1. Your Information",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = PrimarySafetyYellow,
+                        color = AccentPrimary,
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
 
@@ -148,16 +148,16 @@ fun OnboardingScreen(
                         value = userName,
                         onValueChange = { userName = it },
                         label = { Text("Your Full Name") },
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = PrimarySafetyYellow) },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = AccentPrimary) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("onboarding_username_input"),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = PrimarySafetyYellow,
+                            focusedBorderColor = AccentPrimary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = PrimarySafetyYellow,
+                            focusedLabelColor = AccentPrimary,
                             unfocusedLabelColor = TextSecondaryDark
                         ),
                         singleLine = true
@@ -171,7 +171,7 @@ fun OnboardingScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = BorderStroke(1.dp, SecondaryTactileCyan.copy(alpha = 0.3f)),
+                border = BorderStroke(1.dp, AccentSecondary.copy(alpha = 0.3f)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -184,13 +184,13 @@ fun OnboardingScreen(
                             text = "2. Emergency Guardian contact",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = SecondaryTactileCyan
+                            color = AccentSecondary
                         )
                         IconButton(onClick = onImportContactClick) {
                             Icon(
                                 imageVector = Icons.Default.Contacts,
                                 contentDescription = "Import from Contacts List",
-                                tint = PrimarySafetyYellow
+                                tint = AccentPrimary
                             )
                         }
                     }
@@ -199,7 +199,7 @@ fun OnboardingScreen(
                         value = guardianName,
                         onValueChange = { guardianName = it },
                         label = { Text("Guardian Full Name") },
-                        leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null, tint = SecondaryTactileCyan) },
+                        leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null, tint = AccentSecondary) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 12.dp)
@@ -207,9 +207,9 @@ fun OnboardingScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan,
+                            focusedLabelColor = AccentSecondary,
                             unfocusedLabelColor = TextSecondaryDark
                         ),
                         singleLine = true
@@ -219,7 +219,7 @@ fun OnboardingScreen(
                         value = guardianEmail,
                         onValueChange = { guardianEmail = it },
                         label = { Text("Guardian Email Address") },
-                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = SecondaryTactileCyan) },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = AccentSecondary) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -228,9 +228,9 @@ fun OnboardingScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan,
+                            focusedLabelColor = AccentSecondary,
                             unfocusedLabelColor = TextSecondaryDark
                         ),
                         singleLine = true
@@ -240,7 +240,7 @@ fun OnboardingScreen(
                         value = guardianPhone,
                         onValueChange = { guardianPhone = it },
                         label = { Text("Guardian Phone Number") },
-                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = SecondaryTactileCyan) },
+                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = AccentSecondary) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -248,9 +248,9 @@ fun OnboardingScreen(
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedBorderColor = SecondaryTactileCyan,
+                            focusedBorderColor = AccentSecondary,
                             unfocusedBorderColor = SurfaceCardDark,
-                            focusedLabelColor = SecondaryTactileCyan,
+                            focusedLabelColor = AccentSecondary,
                             unfocusedLabelColor = TextSecondaryDark
                         ),
                         singleLine = true
@@ -261,7 +261,7 @@ fun OnboardingScreen(
             if (hasAttemptedSubmit && (userName.isBlank() || guardianName.isBlank() || guardianEmail.isBlank() || guardianPhone.isBlank())) {
                 Text(
                     text = "* Please fill in all credentials to enable emergency support.",
-                    color = EmergencyCrimson,
+                    color = EmergencyRed,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(vertical = 12.dp),
@@ -286,7 +286,7 @@ fun OnboardingScreen(
                     .height(64.dp)
                     .testTag("save_onboarding_button"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = PrimarySafetyYellow,
+                    containerColor = AccentPrimary,
                     contentColor = Color.Black
                 ),
                 shape = RoundedCornerShape(16.dp),
