@@ -74,6 +74,31 @@ enum class SpeechPriority {
 /** Marathi is the primary language; English is the optional secondary. */
 const val DEFAULT_LANGUAGE = "mr-IN"
 
+/** Asking Drishti for help with something is a request, not a distress call. */
+private val ASSISTANCE_REQUEST = Regex(
+    "\\b(can|could|will|would|please)\\b.{0,16}\\bhelp\\b" +
+        "|\\bhelp\\b.{0,4}\\b(me\\s+)?(with|understand|understanding|find|read|choose|pick)\\b"
+)
+
+/** Anchored so "helpful", "helpline" and "helping" cannot raise an emergency. */
+private val DISTRESS_PATTERNS = listOf(
+    "\\bsos\\b", "\\bemergency\\b", "\\bhelp me\\b", "\\bhelp help\\b",
+    "\\bsomeone help\\b", "\\bi need help\\b", "\\bcall\\b.{0,12}\\bguardian\\b",
+    "\\bin danger\\b", "\\bsave me\\b", "\\bi fell\\b", "\\bi have fallen\\b",
+    "मदद करो", "मदद चाहिए", "बचाओ", "आपातकाल", "खतरे में",
+    "मदत करा", "मदत हवी", "वाचवा", "आणीबाणी", "धोक्यात"
+).map { Regex(it) }
+
+/**
+ * True only for a genuine call for help. A false positive here wakes a guardian and
+ * reports a real emergency, so the word "help" alone is deliberately not enough.
+ */
+fun isEmergencyPhrase(command: String): Boolean {
+    val c = command.lowercase().trim()
+    if (ASSISTANCE_REQUEST.containsMatchIn(c)) return false
+    return DISTRESS_PATTERNS.any { it.containsMatchIn(c) }
+}
+
 private const val KEY_GREETED = "has_greeted_once"
 
 /** Spoken once, on first launch only, in the user's language. */
@@ -2295,7 +2320,10 @@ class DrishtiViewModel(
             val isCloseCamera = command.contains("stop camera") || command.contains("close camera") || command.contains("exit camera") || command.contains("कैमरा बंद") || command.contains("कैमरा रोक") || command.contains("कॅमेरा बंद")
             val isDescribeScene = command.contains("describe scene") || command.contains("describe the scene") || command.contains("describe surroundings") || command.contains("describe what you see") || command.contains("what is in front") || command.contains("what do you see") || command.contains("what is there") || command.contains("scan scene") || command.contains("scan surroundings") || command.contains("दृश्य का वर्णन") || command.contains("सामने क्या है") || command.contains("क्या दिख रहा है") || command.contains("क्या दिख रहा") || command.contains("क्या दिख") || command.contains("तुम क्या देख रहे हो") || command.contains("काय दिसत आहे") || command.contains("दृश्य वर्णन") || command.contains("काय दिसत") || command.contains("समोर काय आहे")
             val isReadText = command.contains("read text") || command.contains("read sign") || command.contains("read letters") || command.contains("read board") || command.contains("पाठ पढ़ो") || command.contains("लिखा हुआ पढ़ो") || command.contains("बोर्ड पढ़ो") || command.contains("अक्षर पढ़ो") || command.contains("मजकूर वाचा") || command.contains("पाटी वाचा") || command.contains("लिहिलेले वाचा") || command.contains("अक्षरे वाचा")
-            val isEmergency = command.contains("help") || command.contains("emergency") || command.contains("sos") || command.contains("मदद करो") || command.contains("बचाओ") || command.contains("आपातकाल") || command.contains("मदत करा") || command.contains("वाचवा") || command.contains("आणीबाणी")
+            // A bare "help" used to fire a real SOS to the guardian, so ordinary
+            // conversation like "can you help me understand this" raised an emergency.
+            // Distress must be an explicit call for help, not the word appearing anywhere.
+            val isEmergency = isEmergencyPhrase(command)
             val isRecall = command.contains("what did i pass") || command.contains("recall scene") || command.contains("memory recall") || command.contains("whats behind") || command.contains("minutes ago") || command.contains("पीछे क्या था") || command.contains("याद करो") || command.contains("मागे काय होते") || command.contains("आठवा")
             val isEmotion = command.contains("detect emotion") || command.contains("expression") || command.contains("detect face") || command.contains("feeling") || command.contains("भाव पहचानो") || command.contains("चेहरे के भाव") || command.contains("भावना पहचानो") || command.contains("भावना ओळखा") || command.contains("चेहऱ्याचे हावभाव")
             val isCurrency = command.contains("read currency") || command.contains("detect cash") || command.contains("scan rupee") || command.contains("read cash") || command.contains("currency reader") || command.contains("rupees") || command.contains("read note") || command.contains("money") || command.contains("पैसे पढ़ो") || command.contains("रुपया पहचानो") || command.contains("रुपये पहचानो") || command.contains("नोट पढ़ो") || command.contains("करेंसी पहचानो") || command.contains("पैसे") || command.contains("रुपये") || command.contains("चलन") || command.contains("चलन ओळखा") || command.contains("नोट वाचा")

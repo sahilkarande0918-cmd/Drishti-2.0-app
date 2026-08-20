@@ -66,6 +66,50 @@ class MainActivity : ComponentActivity() {
     private var triggerSpeechCaptureCallback: (() -> Unit)? = null
     private var volumeDownJob: Job? = null
 
+    /**
+     * Debug-only text injection, so the command router can be exercised without a real
+     * microphone. Voice is the app's only input path, which otherwise makes every routing
+     * change untestable outside of someone physically speaking to the phone.
+     *
+     *   adb shell am broadcast -a com.drishti.DEBUG_SAY -e text "किती वाजले"
+     *
+     * Not registered in release builds.
+     */
+    private var debugSayReceiver: android.content.BroadcastReceiver? = null
+
+    private fun registerDebugSayReceiver(onText: (String) -> Unit) {
+        if (!BuildConfig.DEBUG || debugSayReceiver != null) return
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: android.content.Intent?) {
+                val text = intent?.getStringExtra("text")?.trim().orEmpty()
+                if (text.isNotBlank()) {
+                    Log.d("MainActivity", "DEBUG_SAY injected: $text")
+                    runOnUiThread { onText(text) }
+                }
+            }
+        }
+        val filter = android.content.IntentFilter("com.drishti.DEBUG_SAY")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(receiver, filter)
+        }
+        debugSayReceiver = receiver
+    }
+
+    override fun onDestroy() {
+        debugSayReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.w("MainActivity", "debugSayReceiver already unregistered", e)
+            }
+        }
+        debugSayReceiver = null
+        super.onDestroy()
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         if (keyCode == android.view.KeyEvent.KEYCODE_VOLUME_DOWN) {
             if (event?.repeatCount == 0) {
@@ -440,6 +484,13 @@ class MainActivity : ComponentActivity() {
             }
 
             triggerSpeechCaptureCallback = triggerSpeechCapture
+
+            LaunchedEffect(Unit) {
+                registerDebugSayReceiver { text ->
+                    dViewModel.stopSpeaking()
+                    dViewModel.processSpeachTextCommand(text)
+                }
+            }
 
             DrishtiTheme {
                 val navController = rememberNavController()
