@@ -109,7 +109,23 @@ class ObstacleDetector(context: Context) {
     companion object {
         private const val TAG = "OutdoorDetector"
         private const val MODEL_ASSET = "efficientdet_lite0.tflite"
-        private const val MIN_HEIGHT_FRACTION = 0.12f
+        // Lowered from 0.12 so obstacles register while they are still some distance away,
+        // giving a blind walker warning BEFORE they are on top of the hazard rather than
+        // when it already fills the frame. The danger-only label filter keeps the extra
+        // small detections from becoming noise.
+        private const val MIN_HEIGHT_FRACTION = 0.07f
+
+        /**
+         * The only classes live navigation announces: things that can actually hurt a
+         * blind walker — moving traffic, people, animals, bikes. Benign furniture and
+         * décor (bench, potted plant, tv, poster-like signage) is deliberately excluded,
+         * because calling out everything in view is noise that buries the real danger.
+         * The one-time full scan still describes everything; this set is nav-only.
+         */
+        val DANGER_LABELS = setOf(
+            "person", "bicycle", "car", "motorcycle", "bus", "truck", "train",
+            "dog", "cow", "horse"
+        )
 
         /** COCO classes that matter on an Indian street or footpath. */
         val OUTDOOR_LABELS = setOf(

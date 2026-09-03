@@ -219,6 +219,14 @@ class DrishtiViewModel(
     var fallCountdownSecondsRemaining by mutableStateOf(0)
         private set
 
+    /** True from the moment a drop is detected until the user cancels or SOS is sent. */
+    var isFallAlertActive by mutableStateOf(false)
+        private set
+    private var sosAlarmJob: kotlinx.coroutines.Job? = null
+    private var sosAlarmTone: ToneGenerator? = null
+    // Ignore repeat drop-triggers while an alert is already counting down or sounding.
+    private var lastFallTriggerTime: Long = 0
+
     fun triggerVibration(duration: Long) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
@@ -600,6 +608,13 @@ class DrishtiViewModel(
         ttsLanguage = prefs.getString("tts_language", DEFAULT_LANGUAGE).orEmpty()
             .ifBlank { DEFAULT_LANGUAGE }
         tts = TextToSpeech(context, this)
+
+        // Fall/drop detection must run whenever the app is alive, not only during walk mode.
+        // It was previously registered only by proactive scanning, so a sudden drop while
+        // the phone sat idle - the exact case the SOS is for - was never detected.
+        accelerometer?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             while (true) {
@@ -2172,6 +2187,12 @@ class DrishtiViewModel(
 
     /** Tap on the orb or double Volume-Down: flips the mic latch on or off. */
     fun toggleMic() {
+        // While a fall/drop alert is counting down or sounding, the same gesture the user
+        // was told to use ("tap the centre" / double Volume-Down) cancels it instead.
+        if (isFallAlertActive) {
+            cancelFallAlert()
+            return
+        }
         if (isMicOn) stopMic() else startMic()
     }
 
@@ -2546,129 +2567,68 @@ class DrishtiViewModel(
                 command.contains("थांबा") || command.contains("बंद कर") || command.contains("बस कर")
             val isUniversalStop = isStopWord && hasActiveVisionOrNav
 
+            // ---- The four explicit commands -------------------------------------------
+            // 1) open camera + one-time full scan
+            val isCameraScan = isOpenCamera || isDescribeScene ||
+                command.contains("camera open") || command.contains("open camera") ||
+                command.contains("camera kr") || command.contains("camera kar") ||
+                command.contains("\u0915\u0945\u092e\u0947\u0930\u093e \u0909\u0918\u0921") ||   // कॅमेरा उघड
+                command.contains("\u0915\u0948\u092e\u0930\u093e \u0916\u094b\u0932") ||          // कैमरा खोल
+                command.contains("scan") || command.contains("\u0938\u094d\u0915\u0945\u0928")       // स्कॅन
+            // 2) live navigation (camera obstacle detection)
+            val isLiveNav = isSmartNavigation || isIndoorNavigation || isOutdoorNavigation ||
+                command.contains("live navigation") || command.contains("live nav") ||
+                command.contains("navigation suru") || command.contains("navigation chalu") ||
+                command.contains("thet margdarshan") ||
+                command.contains("\u0925\u0947\u091f \u092e\u093e\u0930\u094d\u0917\u0926\u0930\u094d\u0936\u0928") || // थेट मार्गदर्शन
+                command.contains("\u0932\u093e\u0907\u0935\u094d\u0939 \u0928\u0947\u0935\u094d\u0939\u093f\u0917\u0947\u0936\u0928") || // लाइव्ह नेव्हिगेशन
+                command.contains("\u0932\u093e\u0907\u0935 \u0928\u0947\u0935\u093f\u0917\u0947\u0936\u0928")     // लाइव नेविगेशन
+            // 3) navigate to a place (GPS route + live camera together)
+            val isNavigateTo = isNavigation ||
+                command.contains("navigate me to") ||
+                command.contains("pohochav") || command.contains("pohcha") || command.contains("paryant") ||
+                command.contains("\u092a\u094b\u0939\u094b\u091a\u0935") ||   // पोहोचव
+                command.contains("\u092a\u0930\u094d\u092f\u0902\u0924")       // पर्यंत
+            val isStopNav = (isStopIndoorNavigation || isStopOutdoorNavigation) ||
+                (isStopWord && (isIndoorNavActive || isOutdoorNavActive || isSmartNavActive || isNavigating))
+
             when {
-                isUniversalStop -> {
-                    stopAllVisionAndNavigation()
-                    orbState = OrbState.IDLE
+                isUniversalStop -> { stopAllVisionAndNavigation(); orbState = OrbState.IDLE }
+
+                // Language
+                isLanguageSwitchHindi -> { changeTtsLanguage("hi-IN"); speak("\u092d\u093e\u0937\u093e \u092c\u0926\u0932\u0915\u0930 \u0939\u093f\u0902\u0926\u0940 \u0915\u0930 \u0926\u0940 \u0917\u0908 \u0939\u0948\u0964"); orbState = OrbState.IDLE }
+                isLanguageSwitchMarathi -> { changeTtsLanguage("mr-IN"); speak("\u092d\u093e\u0937\u093e \u0906\u0924\u093e \u092e\u0930\u093e\u0920\u0940 \u0915\u0947\u0932\u0940 \u0906\u0939\u0947\u0964"); orbState = OrbState.IDLE }
+                isLanguageSwitchEnglish -> { changeTtsLanguage("en-IN"); speak("Language switched to English."); orbState = OrbState.IDLE }
+
+                // Command 4: SOS — safety always wins, matched first.
+                isPanicEmergency -> { _navigationEvents.tryEmit("sos"); triggerPanicWordSOS() }
+                isEmergency -> { _navigationEvents.tryEmit("sos"); activateEmergencySOS() }
+                isCancel -> { cancelFallAlert(); dismissPanicAlarm(); orbState = OrbState.IDLE }
+
+                // Command 3: navigate to <place>  (before live-nav / camera: more specific)
+                isStopNav -> { stopAllVisionAndNavigation(); orbState = OrbState.IDLE }
+                isNavigateTo -> {
+                    val dest = mapDestinationQuery(extractDestination(command))
+                    if (dest.isNotBlank()) startGuidedNavigation(dest)
+                    else { speak(phrase("Where should I take you?", "\u0915\u0939\u093e\u0901 \u0932\u0947 \u091a\u0932\u0942\u0901?", "\u0915\u0941\u0920\u0947 \u0928\u094d\u092f\u093e\u092f\u091a\u0902?")); orbState = OrbState.IDLE }
                 }
-                isLanguageSwitchHindi -> {
-                    changeTtsLanguage("hi-IN")
-                    speak("भाषा बदलकर हिंदी कर दी गई है।")
-                    orbState = OrbState.IDLE
-                }
-                isLanguageSwitchMarathi -> {
-                    changeTtsLanguage("mr-IN")
-                    speak("भाषा बदलून मराठी करण्यात आली आहे।")
-                    orbState = OrbState.IDLE
-                }
-                isLanguageSwitchEnglish -> {
-                    changeTtsLanguage("en-IN")
-                    speak("Language switched to English.")
-                    orbState = OrbState.IDLE
-                }
-                isTimeQuery -> {
-                    speak(buildLocalTimeResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isDateQuery -> {
-                    speak(buildLocalDateResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isDayQuery -> {
-                    speak(buildLocalDayResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isBatteryQuery -> {
-                    speak(buildLocalBatteryResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isGpsStatusQuery -> {
-                    speak(buildLocalGpsResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isCapabilities -> {
-                    speak(buildLocalCapabilitiesResponse(), bypassCooldown = true)
-                    orbState = OrbState.IDLE
-                }
-                isDetectPeople -> {
-                    _navigationEvents.tryEmit("dashboard")
-                    _scrollPagerEvent.tryEmit(3)
-                    scanRoomHeadcount()
-                }
-                isWhereAmI -> {
-                    _navigationEvents.tryEmit("navigation")
-                    speakCurrentLocation()
-                    orbState = OrbState.IDLE
-                }
-                isNavigation -> {
-                    val dest = extractDestination(command)
-                    val mappedDest = mapDestinationQuery(dest)
-                    _navigationEvents.tryEmit("navigation")
-                    if (mappedDest.isNotBlank()) {
-                        val cleanQuery = cleanPlaceName(mappedDest)
-                        val savedPlace = savedPlaces.value.find { saved ->
-                            val cleanSavedName = cleanPlaceName(saved.name)
-                            cleanSavedName == cleanQuery || 
-                            saved.name.equals(mappedDest, ignoreCase = true) ||
-                            cleanSavedName.contains(cleanQuery) ||
-                            cleanQuery.contains(cleanSavedName)
-                        }
-                        if (savedPlace != null) {
-                            navigateToSavedPlace(savedPlace)
-                        } else {
-                            triggerScenicNavigation(mappedDest)
-                        }
-                    } else {
-                        speak("Where would you like me to guide you? Just say where and we'll get you there safely.")
-                        orbState = OrbState.IDLE
-                    }
-                }
-                isOpenCamera -> {
-                    triggerVoiceVisionAction("scene", "Opening camera and scanning what is in front of you.")
-                }
-                isCloseCamera -> {
-                    _navigationEvents.tryEmit("dashboard")
-                    stopLiveScanning()
-                    speak("Stopping the camera. Re-entering dashboard standby mode.")
-                    orbState = OrbState.IDLE
-                }
-                isDescribeScene -> {
-                    triggerVoiceVisionAction("scene", "Activating camera intelligence. Scanning your surroundings now.")
-                }
-                isReadText -> {
-                    triggerVoiceVisionAction("sign", "Aligning camera lens to read visible text for you.")
-                }
-                isPanicEmergency -> {
-                    _navigationEvents.tryEmit("sos")
-                    triggerPanicWordSOS()
-                }
-                isEmergency -> {
-                    _navigationEvents.tryEmit("sos")
-                    activateEmergencySOS()
-                }
-                isRecall -> {
-                    handleContextualRecallQuery()
-                    orbState = OrbState.IDLE
-                }
-                isEmotion -> {
-                    triggerVoiceVisionAction("emotion", "Activating facial analysis. Let me look at the person in front of you.")
-                }
-                isCurrency -> {
-                    triggerVoiceVisionAction("currency", "Hold the currency note in front of the camera. Scanning now.")
-                }
-                isProduct -> {
-                    triggerVoiceVisionAction("product", "Hold the product label in front of the camera. Reading ingredients and expiry.")
-                }
-                isColor -> {
-                    triggerVoiceVisionAction("color", "Hold the item in front of the camera. Identifying its color now.")
-                }
-                isLight -> {
-                    toggleLightDetector()
-                    orbState = OrbState.IDLE
-                }
-                isCancel -> {
-                    cancelFallAlert()
-                    dismissPanicAlarm()
+                // Command 2: live navigation
+                isLiveNav -> startLiveNavigation()
+                // Command 1: open camera + scan
+                isCameraScan -> scanOnce()
+                isCloseCamera -> { _navigationEvents.tryEmit("dashboard"); stopAllVisionAndNavigation(); orbState = OrbState.IDLE }
+
+                // Retained basics (conversational core stays)
+                isTimeQuery -> { speak(buildLocalTimeResponse(), bypassCooldown = true); orbState = OrbState.IDLE }
+                isDateQuery -> { speak(buildLocalDateResponse(), bypassCooldown = true); orbState = OrbState.IDLE }
+                isDayQuery -> { speak(buildLocalDayResponse(), bypassCooldown = true); orbState = OrbState.IDLE }
+                isBatteryQuery -> { speak(buildLocalBatteryResponse(), bypassCooldown = true); orbState = OrbState.IDLE }
+                isGpsStatusQuery -> { speak(buildLocalGpsResponse(), bypassCooldown = true); orbState = OrbState.IDLE }
+                isWhereAmI -> { speakCurrentLocation(); orbState = OrbState.IDLE }
+                isRepeat -> {
+                    if (lastImportantMessage.isNotBlank())
+                        speak(lastImportantMessage, lastImportantMessagePriority ?: SpeechPriority.INFORMATION, bypassCooldown = true)
+                    else speak(phrase("I have nothing to repeat yet.", "\u0905\u092d\u0940 \u0915\u0941\u091b \u0926\u094b\u0939\u0930\u093e\u0928\u0947 \u0915\u094b \u0928\u0939\u0940\u0902\u0964", "\u0905\u091c\u0942\u0928 \u092a\u0941\u0928\u094d\u0939\u093e \u0938\u093e\u0902\u0917\u093e\u092f\u0932\u093e \u0915\u093e\u0939\u0940 \u0928\u093e\u0939\u0940."))
                     orbState = OrbState.IDLE
                 }
                 isRememberThis -> {
@@ -2676,151 +2636,74 @@ class DrishtiViewModel(
                         .replace("remember this place as", "", ignoreCase = true)
                         .replace("remember this as", "", ignoreCase = true)
                         .replace("save landmark", "", ignoreCase = true)
-                        .replace("learn landmark", "", ignoreCase = true)
-                        .replace("इस जगह को याद रखो", "", ignoreCase = true)
-                        .replace("इस जगह को याद", "", ignoreCase = true)
-                        .replace("या जागा लक्षात ठेवा", "", ignoreCase = true)
-                        .replace("या जागेला लक्षात", "", ignoreCase = true)
                         .trim()
-                    if (placeName.isNotBlank()) {
-                        rememberThisPlaceAs(placeName)
-                    } else {
-                        speak("What name should I remember this place as?")
-                        orbState = OrbState.IDLE
-                    }
+                    if (placeName.isNotBlank()) rememberThisPlaceAs(placeName)
+                    else { speak(phrase("What name should I remember this place as?", "\u0907\u0938 \u091c\u0917\u0939 \u0915\u094b \u0915\u093f\u0938 \u0928\u093e\u092e \u0938\u0947 \u092f\u093e\u0926 \u0930\u0916\u0942\u0901?", "\u0939\u0940 \u091c\u093e\u0917\u093e \u0915\u094b\u0923\u0924\u094d\u092f\u093e \u0928\u093e\u0935\u093e\u0928\u0947 \u0932\u0915\u094d\u0937\u093e\u0924 \u0920\u0947\u0935\u0942?")); orbState = OrbState.IDLE }
                 }
-                isSettings -> {
-                    _navigationEvents.tryEmit("settings")
-                    speak("Opening manual settings preferences page.")
-                    orbState = OrbState.IDLE
-                }
-                isRepeat -> {
-                    if (lastImportantMessage.isNotBlank()) {
-                        speak(lastImportantMessage, lastImportantMessagePriority ?: SpeechPriority.INFORMATION, bypassCooldown = true)
-                    } else {
-                        speak("I have not spoken any important messages yet.")
-                    }
-                    orbState = OrbState.IDLE
-                }
-                isStopContinuousScanning -> {
-                    isWalkWithMeActive = false
-                    isLiveScanning = false
-                    toggleProactiveState(false)
-                    speak("Continuous scanning stopped.")
-                    orbState = OrbState.IDLE
-                }
-                isStopWalking -> {
-                    isWalkWithMeActive = false
-                    isLiveScanning = false
-                    toggleProactiveState(false)
-                    val userName = userProfile.value?.name ?: "Sahil"
-                    speak("I've stopped walking with you, $userName.", SpeechPriority.NAVIGATION)
-                    orbState = OrbState.IDLE
-                }
-                isProactiveAlerts -> {
-                    if (command.contains("stop") || command.contains("disable") || command.contains("end") || command.contains("बंद") || command.contains("थांबवा")) {
-                        isLiveScanning = false
-                        toggleProactiveState(false)
-                        speak("Continuous scanning stopped.")
-                    } else {
-                        toggleProactiveState(true)
-                        _navigationEvents.tryEmit("vision")
-                    }
-                    orbState = OrbState.IDLE
-                }
-                isStopOutdoorNavigation -> {
-                    stopOutdoorNavigation()
-                    orbState = OrbState.IDLE
-                }
-                isOutdoorNavigation -> {
-                    startOutdoorNavigation()
-                    orbState = OrbState.IDLE
-                }
-                isStopIndoorNavigation -> {
-                    stopIndoorNavigation()
-                    orbState = OrbState.IDLE
-                }
-                isIndoorNavigation -> {
-                    startIndoorNavigation()
-                    orbState = OrbState.IDLE
-                }
-                isSmartNavigation -> {
-                    startSmartNavigation()
-                    orbState = OrbState.IDLE
-                }
-                isWalkWithMe -> {
-                    isWalkWithMeActive = true
-                    toggleProactiveState(true)
-                    _navigationEvents.tryEmit("vision")
-                    val userName = userProfile.value?.name ?: "Sahil"
-                    speak("Okay $userName, I'll walk with you and only alert you when necessary.", SpeechPriority.NAVIGATION)
-                    orbState = OrbState.IDLE
-                }
-                isDashboard -> {
-                    _navigationEvents.tryEmit("dashboard")
-                    speak("Opening main dashboard.")
-                    orbState = OrbState.IDLE
-                }
+                isSettings -> { _navigationEvents.tryEmit("settings"); speak(phrase("Opening settings.", "\u0938\u0947\u091f\u093f\u0902\u0917 \u0916\u094b\u0932 \u0930\u0939\u0940 \u0939\u0942\u0901\u0964", "\u0938\u0947\u091f\u093f\u0902\u0917\u094d\u091c \u0909\u0918\u0921\u0924\u0947\u092f\u0964")); orbState = OrbState.IDLE }
+                isDashboard -> { _navigationEvents.tryEmit("dashboard"); speak(phrase("Opening home.", "\u0939\u094b\u092e \u0916\u094b\u0932 \u0930\u0939\u0940 \u0939\u0942\u0901\u0964", "\u092e\u0941\u0916\u094d\u092f \u0938\u094d\u0915\u094d\u0930\u0940\u0928 \u0909\u0918\u0921\u0924\u0947\u092f\u0964")); orbState = OrbState.IDLE }
+
+                // Everything else: talk to the user (conversational core).
                 else -> {
-                    val isNavIntent = command.contains("go to") || command.contains("navigate") || command.contains("route to") || command.contains("way to") || command.contains("directions to") || command.contains("guide me to")
-                    if (isNavIntent && command.length > 3) {
-                        val destination = extractDestination(command)
-                        val mappedDest = mapDestinationQuery(destination)
-                        if (mappedDest.isNotBlank()) {
-                            _navigationEvents.tryEmit("navigation")
-                            val cleanQuery = cleanPlaceName(mappedDest)
-                            val savedPlace = savedPlaces.value.find { saved ->
-                                val cleanSavedName = cleanPlaceName(saved.name)
-                                cleanSavedName == cleanQuery || 
-                                saved.name.equals(mappedDest, ignoreCase = true) ||
-                                cleanSavedName.contains(cleanQuery) ||
-                                cleanQuery.contains(cleanSavedName)
-                            }
-                            if (savedPlace != null) {
-                                navigateToSavedPlace(savedPlace)
-                            } else {
-                                triggerScenicNavigation(mappedDest)
-                            }
-                        } else {
-                            speak("Where would you like to navigate?")
-                            orbState = OrbState.IDLE
-                        }
-                    } else {
-                        // Forward to AI Assistant Brain (Groq -> Gemini fallback)
-                        val gHistory = getGroqHistory()
+                    val gHistory = getGroqHistory()
+                    try {
+                        val response = repository.getGroqResponse(recognizedText, gHistory, groqApiKey, resolvedGenderOrNull())
+                        conversationHistory.add(GroqMessage("user", recognizedText))
+                        conversationHistory.add(GroqMessage("assistant", response))
+                        if (conversationHistory.size > 20) conversationHistory.removeAt(0)
+                        speak(response)
+                    } catch (e: Exception) {
                         try {
-                            // Try Groq first (primary)
-                            val response = repository.getGroqResponse(recognizedText, gHistory, groqApiKey, resolvedGenderOrNull())
+                            val response = repository.getGeminiTextResponse(recognizedText, gHistory, geminiApiKey, resolvedGenderOrNull())
                             conversationHistory.add(GroqMessage("user", recognizedText))
                             conversationHistory.add(GroqMessage("assistant", response))
-                            if (conversationHistory.size > 20) {
-                                conversationHistory.removeAt(0)
-                            }
+                            if (conversationHistory.size > 20) conversationHistory.removeAt(0)
                             speak(response)
-                        } catch (e: Exception) {
-                            // Fallback to Gemini text response
-                            try {
-                                val response = repository.getGeminiTextResponse(recognizedText, gHistory, geminiApiKey, resolvedGenderOrNull())
-                                conversationHistory.add(GroqMessage("user", recognizedText))
-                                conversationHistory.add(GroqMessage("assistant", response))
-                                if (conversationHistory.size > 20) {
-                                    conversationHistory.removeAt(0)
-                                }
-                                speak(response)
-                            } catch (e2: Exception) {
-                                val fallbackMsg = when (ttsLanguage) {
-                                    "hi-IN" -> "\u0926\u0943\u0937\u094d\u091f\u093f \u0938\u094b\u091a \u0930\u0939\u0940 \u0939\u0948\u0964 \u091c\u0939\u093e\u0901 \u0924\u0915 \u0939\u092e\u0947\u0902 \u092a\u0924\u093e \u0939\u0948: \u092e\u0948\u0902 \u0906\u092a\u0915\u0947 \u0938\u093e\u0925 \u0939\u0942\u0901, \u0914\u0930 \u0939\u092e \u0906\u092a\u0915\u094b \u092a\u0942\u0930\u0940 \u0924\u0930\u0939 \u0938\u0941\u0930\u0915\u094d\u0937\u093f\u0924 \u0930\u0916\u0947\u0902\u0917\u0947\u0964"
-                                    "mr-IN" -> "\u0926\u0943\u0937\u094d\u091f\u0940 \u0935\u093f\u091a\u093e\u0930 \u0915\u0930\u0924 \u0906\u0939\u0947\u0964 \u0906\u092a\u0932\u094d\u092f\u093e\u0932\u093e \u092e\u093e\u0939\u093f\u0924 \u0906\u0939\u0947 \u0924\u094d\u092f\u093e\u0928\u0941\u0938\u093e\u0930: \u092e\u0940 \u0924\u09410\u091d\u094d\u092f\u093e\u0938\u094b\u092c\u0924 \u0906\u0939\u0947 \u0906\u0923\u093f \u0906\u092e\u094d\u0939\u0940 \u0924\u0941\u092e\u094d\u0939\u093e\u0932\u093e \u092a\u0942\u0930\u094d\u0923\u092a\u0923\u0947 \u0938\u0941\u0930\u0915\u094d\u0937\u093f\u0924 \u0920\u0947\u0935\u0942\u0964"
-                                    else -> "Drishti is thinking. Here's what we know: I am here with you, and we will keep you fully safe."
-                                }
-                                speak(fallbackMsg)
-                            }
+                        } catch (e2: Exception) {
+                            speak(phrase(
+                                "I am here with you. Please try again in a moment.",
+                                "\u092e\u0948\u0902 \u0906\u092a\u0915\u0947 \u0938\u093e\u0925 \u0939\u0942\u0901\u0964 \u0925\u094b\u0921\u0940 \u0926\u0947\u0930 \u092c\u093e\u0926 \u092b\u093f\u0930 \u0938\u0947 \u092c\u094b\u0932\u094b\u0964",
+                                "\u092e\u0940 \u0924\u0941\u091d\u094d\u092f\u093e\u0938\u094b\u092c\u0924 \u0906\u0939\u0947. \u0925\u094b\u0921\u094d\u092f\u093e \u0935\u0947\u0933\u093e\u0928\u0947 \u092a\u0941\u0928\u094d\u0939\u093e \u092c\u094b\u0932."))
                         }
-                        orbState = OrbState.IDLE
                     }
+                    orbState = OrbState.IDLE
                 }
             }
         }
+    }
+
+    // ==========================================
+    // NEW FOCUSED COMMAND ACTIONS
+    // ==========================================
+
+    /** Command 1: open the camera, grab one frame, and describe everything in front. */
+    fun scanOnce() {
+        triggerVoiceVisionAction("scene", phrase(
+            "Opening the camera and scanning what is in front of you.",
+            "\u0915\u0948\u092e\u0930\u093e \u0916\u094b\u0932\u0915\u0930 \u0938\u093e\u092e\u0928\u0947 \u0915\u093e \u0926\u0943\u0936\u094d\u092f \u0938\u094d\u0915\u0948\u0928 \u0915\u0930 \u0930\u0939\u0940 \u0939\u0942\u0901\u0964",
+            "\u0915\u0945\u092e\u0947\u0930\u093e \u0909\u0918\u0921\u0942\u0928 \u0938\u092e\u094b\u0930 \u0915\u093e\u092f \u0906\u0939\u0947 \u0924\u0947 \u092c\u0918\u0924\u0947\u092f\u0964"))
+    }
+
+    /** Command 2: live navigation — camera-based danger detection, no vibration. */
+    fun startLiveNavigation() {
+        startSmartNavigation()
+    }
+
+    /**
+     * Command 3: real GPS walking route to [dest] AND live camera obstacle detection.
+     * The route gives spoken turn-by-turn (no screen needed); the camera is shown so
+     * dangers are called out on the way. Routing is the real Nominatim/OSRM path.
+     */
+    fun startGuidedNavigation(dest: String) {
+        val cleanQuery = cleanPlaceName(dest)
+        val savedPlace = savedPlaces.value.find { saved ->
+            val cleanSavedName = cleanPlaceName(saved.name)
+            cleanSavedName == cleanQuery || saved.name.equals(dest, ignoreCase = true) ||
+            cleanSavedName.contains(cleanQuery) || cleanQuery.contains(cleanSavedName)
+        }
+        if (savedPlace != null) navigateToSavedPlace(savedPlace) else triggerScenicNavigation(dest)
+        // Start the live camera layer too, so obstacles are announced en route.
+        startSmartNavigation()
     }
 
     fun updateRuviewSettings(enabled: Boolean, url: String) {
@@ -3198,7 +3081,7 @@ class DrishtiViewModel(
                     continue
                 }
                 lastProcessedStamp = stamp
-                val found = detector.detect(frame, ObstacleDetector.INDOOR_LABELS)
+                val found = detector.detect(frame, ObstacleDetector.DANGER_LABELS)
                 val top = found.firstOrNull()
                 if (found.isNotEmpty()) {
                     Log.d("DrishtiNav", "indoor fast layer sees: " + found.joinToString { "${it.label}/${it.proximity}" })
@@ -3275,7 +3158,7 @@ class DrishtiViewModel(
                         addSceneToMemory(cleaned)
 
                         // One buzz, and only when contact is imminent.
-                        warnProximity(dist)
+                        // (no vibration in navigation)
                     }
                 }
 
@@ -3357,7 +3240,7 @@ class DrishtiViewModel(
                     continue
                 }
                 lastProcessedStamp = stamp
-                val top = detector.detect(frame).firstOrNull()
+                val top = detector.detect(frame, ObstacleDetector.DANGER_LABELS).firstOrNull()
                 if (!fastLayerActive()) break
                 if (top != null) announceObstacle(top, indoor = false)
             }
@@ -3410,10 +3293,8 @@ class DrishtiViewModel(
                 stopSpeaking()
             }
             speak(sentence, SpeechPriority.OBSTACLE, bypassCooldown = true)
-
-            // One buzz, only when something is close enough to walk into. Vibrating on
-            // every announcement made the phone shake continuously while walking.
-            if (newlyUrgent) warnProximity(0.8f)
+            // No vibration in live navigation: the buzz fired on so many frames it became a
+            // continuous shake the user could not act on. The spoken warning is the signal.
         }
     }
 
@@ -3570,7 +3451,7 @@ class DrishtiViewModel(
                         }
                         speak(cleaned, SpeechPriority.OBSTACLE, bypassCooldown = true)
                         addSceneToMemory(cleaned)
-                        warnProximity(extractDistance(cleaned))
+                        // (no vibration in navigation)
                     }
                 }
 
@@ -3750,7 +3631,7 @@ class DrishtiViewModel(
                             }
                             speak(body, SpeechPriority.OBSTACLE, bypassCooldown = true)
                             addSceneToMemory(body)
-                        warnProximity(extractDistance(body))
+                        // (no vibration in navigation)
                         }
                     }
                 }
@@ -4022,7 +3903,7 @@ class DrishtiViewModel(
                     speak(alert, SpeechPriority.OBSTACLE, bypassCooldown = true)
                 }
 
-                warnProximity(extractDistance(alert))
+                        // (no vibration in navigation)
                 addSceneToMemory(alert)
             } else {
                 isPathClearState = true
@@ -4157,33 +4038,101 @@ class DrishtiViewModel(
         }
     }
 
+    /**
+     * Command 4: a sudden drop starts a 20s countdown. Drishti asks twice whether the user
+     * is okay; if they do not tap the orb (centre of screen) or double-press Volume Down
+     * within 20s, it sends the live location to the guardian and sounds a loud alarm that
+     * keeps going until the user cancels.
+     */
+    /** Debug-only entry point to exercise the drop-SOS flow without a real fall. */
+    fun debugTriggerFall() {
+        if (BuildConfig.DEBUG) triggerFallCountdownAlert()
+    }
+
     private fun triggerFallCountdownAlert() {
-        if (fallCountdownJob != null) return // Already running
+        if (fallCountdownJob != null || isFallAlertActive) return
+        val now = System.currentTimeMillis()
+        if (now - lastFallTriggerTime < 5000) return
+        lastFallTriggerTime = now
+
+        isFallAlertActive = true
+        orbState = OrbState.EMERGENCY
         triggerVibration(longArrayOf(0, 400, 100, 400, 100, 400))
-        speak("Attention. Impact detected. Initializing automatic guardian alert sequence.", SpeechPriority.EMERGENCY)
+
         fallCountdownJob = viewModelScope.launch {
-            fallCountdownSecondsRemaining = 10
+            val prompt = phrase(
+                "I think you dropped or fell. Are you okay? Tap the centre of the screen to cancel.",
+                "लगता है आप गिर गए। क्या आप ठीक हैं? रद्द करने के लिए स्क्रीन के बीच में टैप करो।",
+                "तू पडलास असं वाटतंय। तू ठीक आहेस का? रद्द करायला स्क्रीनच्या मध्यावर टॅप कर।")
+            speak(prompt, SpeechPriority.EMERGENCY, bypassCooldown = true)
+
+            fallCountdownSecondsRemaining = 20
             while (fallCountdownSecondsRemaining > 0) {
-                speak("$fallCountdownSecondsRemaining", SpeechPriority.EMERGENCY)
+                // Re-ask at 13s and 6s remaining (two reminders during the window).
+                if (fallCountdownSecondsRemaining == 13 || fallCountdownSecondsRemaining == 6) {
+                    speak(prompt, SpeechPriority.EMERGENCY, bypassCooldown = true)
+                }
                 delay(1000)
                 fallCountdownSecondsRemaining--
             }
-            // If countdown reaches 0, trigger emergency alert!
-            triggerVibration(500)
-            speak("Emergency. Guardian alert sent.", SpeechPriority.EMERGENCY)
+
+            // No response: alert the guardian and start the loud alarm.
+            speak(phrase(
+                "No response. Sending your location to your guardian now.",
+                "कोई जवाब नहीं। आपकी लोकेशन गार्डियन को भेज रही हूँ।",
+                "काही उत्तर नाही। तुझे लोकेशन गार्डियनला पाठवतेय।"),
+                SpeechPriority.EMERGENCY, bypassCooldown = true)
             activateEmergencySOS()
+            startSosAlarm()
             fallCountdownJob = null
         }
     }
 
-    fun cancelFallAlert() {
-        if (fallCountdownJob != null) {
-            fallCountdownJob?.cancel()
-            fallCountdownJob = null
-            fallCountdownSecondsRemaining = 0
-            triggerVibration(100L)
-            speak("Emergency alert cancelled. Re entering standby.", SpeechPriority.EMERGENCY)
+    /** Loud repeating alarm on the music stream until [cancelFallAlert] stops it. */
+    private fun startSosAlarm() {
+        if (sosAlarmJob != null) return
+        sosAlarmJob = viewModelScope.launch(Dispatchers.IO) {
+            while (coroutineContext[kotlinx.coroutines.Job]?.isActive == true) {
+                try {
+                    sosAlarmTone?.release()
+                    sosAlarmTone = ToneGenerator(AudioManager.STREAM_MUSIC, 100)
+                    sosAlarmTone?.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 700)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                triggerVibration(longArrayOf(0, 500, 200, 500))
+                delay(900)
+            }
         }
+    }
+
+    private fun stopSosAlarm() {
+        sosAlarmJob?.cancel()
+        sosAlarmJob = null
+        try {
+            sosAlarmTone?.stopTone()
+            sosAlarmTone?.release()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        sosAlarmTone = null
+    }
+
+    /** Cancel from the orb tap (centre of screen) or a double Volume-Down press. */
+    fun cancelFallAlert() {
+        if (!isFallAlertActive && fallCountdownJob == null && sosAlarmJob == null) return
+        fallCountdownJob?.cancel()
+        fallCountdownJob = null
+        fallCountdownSecondsRemaining = 0
+        stopSosAlarm()
+        isFallAlertActive = false
+        orbState = OrbState.IDLE
+        triggerVibration(100L)
+        speak(phrase(
+            "Okay, I've cancelled the emergency alert.",
+            "ठीक है, मैंने आपातकालीन अलर्ट रद्द कर दी।",
+            "ठीक आहे, मी आणीबाणीचा इशारा रद्द केला।"),
+            SpeechPriority.EMERGENCY, bypassCooldown = true)
     }
 
     /**
@@ -4697,6 +4646,7 @@ class DrishtiViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        stopSosAlarm()
         obstacleDetector?.close()
         obstacleDetector = null
         tts?.shutdown()

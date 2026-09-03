@@ -542,21 +542,27 @@ class MainActivity : ComponentActivity() {
 
             // Active voice capture activation function - Uses background SpeechRecognizer with no popups
             val triggerSpeechCapture: () -> Unit = {
-                // Instantly halt/interrupt any ongoing speak outputs (making it fully interruptible like Gemini Voice)
-                dViewModel.stopSpeaking()
-
-                val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.RECORD_AUDIO
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-
-                if (!hasMicPermission) {
-                    Toast.makeText(context, "Microphone access requested for Voice Commands.", Toast.LENGTH_LONG).show()
-                    permissionsLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                // A fall/drop alert is cancelled by this exact gesture, and must cancel even
+                // without mic permission — so handle it before the permission gate below.
+                if (dViewModel.isFallAlertActive) {
+                    dViewModel.cancelFallAlert()
                 } else {
-                    // Toggle the latch. startMic bumps micSessionRequest, which opens the
-                    // recogniser immediately — the old fixed 350ms wait is gone.
-                    dViewModel.toggleMic()
+                    // Instantly halt/interrupt any ongoing speak outputs (fully interruptible).
+                    dViewModel.stopSpeaking()
+
+                    val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+                    if (!hasMicPermission) {
+                        Toast.makeText(context, "Microphone access requested for Voice Commands.", Toast.LENGTH_LONG).show()
+                        permissionsLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                    } else {
+                        // Toggle the latch. startMic bumps micSessionRequest, which opens the
+                        // recogniser immediately.
+                        dViewModel.toggleMic()
+                    }
                 }
             }
 
@@ -564,8 +570,14 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(Unit) {
                 registerDebugSayReceiver { text ->
-                    dViewModel.stopSpeaking()
-                    dViewModel.processSpeachTextCommand(text)
+                    if (text == "__FALL__") {
+                        // Debug-only: exercise the drop-SOS countdown without dropping the
+                        // phone. adb shell am broadcast -a com.drishti.DEBUG_SAY --es text __FALL__
+                        dViewModel.debugTriggerFall()
+                    } else {
+                        dViewModel.stopSpeaking()
+                        dViewModel.processSpeachTextCommand(text)
+                    }
                 }
             }
 
