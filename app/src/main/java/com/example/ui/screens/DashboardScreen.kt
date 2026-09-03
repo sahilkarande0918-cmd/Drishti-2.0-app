@@ -205,43 +205,8 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(BackgroundDark)
             .statusBarsPadding()
-            .drawBehind {
-                val canvasWidth = size.width
-                val canvasHeight = size.height
-
-                // Glow 1: Top-Left Deep Blue
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(AccentPrimary.copy(alpha = 0.15f), Color.Transparent),
-                        center = Offset(0f, 0f),
-                        radius = canvasWidth * 0.9f
-                    ),
-                    center = Offset(0f, 0f),
-                    radius = canvasWidth * 0.9f
-                )
-
-                // Glow 2: Center-Right Warm Purple
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(AccentSecondary.copy(alpha = 0.10f), Color.Transparent),
-                        center = Offset(canvasWidth, canvasHeight * 0.4f),
-                        radius = canvasWidth * 1.0f
-                    ),
-                    center = Offset(canvasWidth, canvasHeight * 0.4f),
-                    radius = canvasWidth * 1.0f
-                )
-
-                // Glow 3: Bottom-Left Purple
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(AccentSecondary.copy(alpha = 0.08f), Color.Transparent),
-                        center = Offset(0f, canvasHeight),
-                        radius = canvasWidth * 0.9f
-                    ),
-                    center = Offset(0f, canvasHeight),
-                    radius = canvasWidth * 0.9f
-                )
-            }
+            // No corner glows: they were washing the pure-black ground up to grey-teal.
+            // Pitch black is the point of this theme; the only glow is the orb itself.
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -1398,10 +1363,10 @@ fun NativeVoiceOrb(
     // hue - speed, pulse depth, particles - so the orb still reads as idle / listening /
     // thinking to someone who cannot separate the colours, and emergency stays the only
     // red on screen.
-    val accentBright = GeminiBlue
-    val accentDeep = GeminiViolet
-    val accentPale = Color(0xFFD3E3FD)
-    val coral = GeminiCoral
+    val accentBright = AccentPrimary
+    val accentDeep = Color(0xFF3B82F6)
+    val accentPale = Color(0xFFBFFCFF)
+    val coral = AccentSecondary
     val amber = AccentWarn
     val red = EmergencyRed
 

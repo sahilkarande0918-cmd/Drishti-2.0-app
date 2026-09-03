@@ -4,83 +4,73 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 
 // ============================================================================
-// Drishti palette — Gemini
+// Drishti palette — Terminal / Midnight (pitch-black techy)
 //
-// The previous pass used Material's neutral greys, which read as flat and
-// washed out. Gemini's look is not "grey plus an accent": the surfaces are
-// darker and cooler (blue-tinted, never neutral), the text is pure white
-// rather than off-white, and colour arrives as one vivid multi-stop gradient
-// instead of a single flat hue.
+// Design discipline (Hallmark): a true-black ground, near-black elevated
+// surfaces separated by hairlines rather than washes, ONE sharp cool accent
+// (electric cyan) and nothing competing with it, and pure-white text at max
+// contrast. No decorative gradients spread across the whole UI — colour is
+// spent only where the user acts or is warned.
 //
-// Three things are held over from the accessibility pass and should not be
-// traded away for looks:
-//  * Text stays pure white on near-black (~18:1).
-//  * Red is reserved for emergencies, so red always means danger.
-//  * The gradient decorates; it never carries meaning on its own.
+// Held from the accessibility work: pure-white body text (~21:1 on black),
+// red reserved for emergencies alone, and orb state carried by motion as well
+// as hue so it reads without colour discrimination.
 // ============================================================================
 
-/** Near-black with a cool cast, so surfaces above it never read as neutral grey. */
-val BackgroundDark = Color(0xFF0D0E11)
+/** Pitch black. */
+val BackgroundDark = Color(0xFF000000)
 
-/** The layer above the ground: bars and sheets. */
-val SurfaceDark = Color(0xFF16181D)
+/** First elevated layer — bars, sheets. Barely lifted off black. */
+val SurfaceDark = Color(0xFF0A0B0D)
 
-/** Cards and rows — blue-tinted rather than neutral. */
-val SurfaceCardDark = Color(0xFF1C1F26)
+/** Cards and rows. */
+val SurfaceCardDark = Color(0xFF101216)
 
 /** Pressed / hovered card state. */
-val SurfaceCardElevated = Color(0xFF252932)
+val SurfaceCardElevated = Color(0xFF181B20)
 
-// ---- The Gemini gradient --------------------------------------------------
-// Blue → violet → coral. This is the signature, and the reason the UI reads as
-// Gemini rather than as a generic dark theme.
+// ---- The one accent: electric cyan --------------------------------------
 
-val GeminiBlue = Color(0xFF4285F4)
-val GeminiViolet = Color(0xFF9B72CB)
-val GeminiCoral = Color(0xFFD96570)
+/** Primary accent — the active action / focus. Bright on black (~11:1). */
+val AccentPrimary = Color(0xFF5CE1E6)
 
-/** Full three-stop sweep, for the orb and hero elements. */
+/** Deeper cyan for large fills and pressed states. */
+val AccentSecondary = Color(0xFF06B6D4)
+
+/** Dim cyan for supporting marks that must not compete with the primary. */
+val AccentTertiary = Color(0xFF0E7490)
+
+/** Caution — attention, not emergency. */
+val AccentWarn = Color(0xFFF5C542)
+
+/** Two-stop techy sweep (cyan -> electric blue) for the orb and hero marks. */
 val AccentGradient = Brush.linearGradient(
-    colors = listOf(GeminiBlue, GeminiViolet, GeminiCoral)
+    colors = listOf(AccentPrimary, Color(0xFF3B82F6))
 )
 
-/** Shorter two-stop sweep, for borders and smaller fills. */
+/** Shorter cyan sweep for hairline edges. */
 val AccentGradientSoft = Brush.linearGradient(
-    colors = listOf(GeminiBlue, GeminiViolet)
+    colors = listOf(AccentPrimary.copy(alpha = 0.7f), AccentSecondary.copy(alpha = 0.5f))
 )
 
-// ---- Solid accents --------------------------------------------------------
-
-/** Primary accent where a single colour is needed. ~8.9:1 on the ground. */
-val AccentPrimary = Color(0xFFA8C7FA)
-
-/** Container fill behind primary actions. */
-val AccentSecondary = Color(0xFF4285F4)
-
-/** Muted supporting accent. */
-val AccentTertiary = Color(0xFF9B72CB)
-
-/** Caution — attention needed, but not an emergency. */
-val AccentWarn = Color(0xFFF9CC72)
-
-/** Dark ink for text and icons sitting ON a pale accent. */
-val ButtonBlack = Color(0xFF0A1633)
+/** Near-black ink for text/icons sitting ON the bright cyan. */
+val ButtonBlack = Color(0xFF00171A)
 
 // ---- State ----------------------------------------------------------------
 
 /** Emergency only, and the sole red in the palette. */
-val EmergencyRed = Color(0xFFFF5449)
+val EmergencyRed = Color(0xFFFF3B4E)
 
 /** Confirmation. */
-val SafeGreen = Color(0xFF6DD58C)
+val SafeGreen = Color(0xFF34E7A1)
 
-/** Inactive controls and disabled text. */
-val IdleGray = Color(0xFF8A8F9A)
+/** Inactive controls, hairlines, disabled text. */
+val IdleGray = Color(0xFF3A3F46)
 
 // ---- Text -----------------------------------------------------------------
 
-/** Pure white, ~18:1. Off-white was a large part of why this looked washed out. */
+/** Pure white, ~21:1 on black. */
 val TextPrimaryDark = Color(0xFFFFFFFF)
 
-/** ~9:1 with a faint cool cast to match the surfaces. */
-val TextSecondaryDark = Color(0xFFC5C9D3)
+/** Cool grey secondary, ~8:1. */
+val TextSecondaryDark = Color(0xFF9BA3AE)

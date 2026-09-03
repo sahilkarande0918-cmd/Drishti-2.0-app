@@ -676,7 +676,7 @@ class MainActivity : ComponentActivity() {
                                     tonalElevation = 0.dp,
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
-                                        .tonalSurface(RoundedCornerShape(28.dp), strong = true)
+                                        .background(BackgroundDark, RoundedCornerShape(28.dp)).hairlineSurface(RoundedCornerShape(28.dp))
                                 ) {
                                     navTabs.forEach { tab ->
                                         val isSelected = currentRoute == tab.route

@@ -28,15 +28,19 @@ fun Modifier.tonalSurface(
     .background(if (strong) SurfaceCardElevated else SurfaceCardDark, shape)
 
 /**
- * Same container with a gradient hairline, the Gemini edge treatment.
- *
- * A flat grey outline was a large part of why the previous pass read as washed out: it
- * added a fourth grey to a screen that already had three. The blue-violet sweep gives the
- * panel an edge without adding another neutral.
+ * Same container with a thin cyan hairline — the techy edge treatment. On a pitch-black
+ * ground a single crisp line reads as machined precision, where a soft glow would smear.
  */
 fun Modifier.outlinedTonalSurface(
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(16.dp),
     strong: Boolean = false
 ): Modifier = this
     .tonalSurface(shape, strong)
     .border(BorderStroke(1.dp, AccentGradientSoft), shape)
+
+/** Hairline-only panel (no fill) — for chrome that should feel drawn on the black itself. */
+fun Modifier.hairlineSurface(
+    shape: Shape = RoundedCornerShape(16.dp)
+): Modifier = this
+    .clip(shape)
+    .border(BorderStroke(1.dp, IdleGray.copy(alpha = 0.6f)), shape)
