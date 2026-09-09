@@ -18,7 +18,6 @@ local.properties
 debug.keystore
 ruview_temp
 scratch
-gradle/
 **/build/
 app/build_*
 **/build_*

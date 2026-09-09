@@ -21,6 +21,7 @@ import com.example.data.api.GroqMessage
 import com.example.data.database.*
 import com.example.data.repository.DrishtiRepository
 import com.example.util.ObstacleDetector
+import com.example.util.OnDeviceVision
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
@@ -2842,10 +2843,32 @@ class DrishtiViewModel(
             try {
                 speak(getProcessingMessage())
 
-                val textDescription = kotlinx.coroutines.withTimeoutOrNull(45_000L) {
+                // Scene description is the one feature that genuinely needs a cloud
+                // vision-language model, so it is tried first - but its old fallback
+                // asserted "the path ahead looks clear" without having seen anything at
+                // all. A blind user cannot check that, and would step forward on it. When
+                // the cloud is unavailable we now report what the on-device labeller
+                // actually sees, or admit we cannot see.
+                val cloud = kotlinx.coroutines.withTimeoutOrNull(20_000L) {
                     repository.analyzeCameraIntent(bitmap, "general scene overview", groqApiKey, geminiApiKey, ttsLanguage)
-                }?.takeIf { it.isNotBlank() }
-                    ?: "The path ahead looks clear. No immediate hazards detected."
+                }?.takeIf { it.isNotBlank() && !it.startsWith("Using offline description") }
+
+                val textDescription = cloud ?: run {
+                    val labels = OnDeviceVision.labelScene(bitmap)
+                    if (labels.isEmpty()) {
+                        phrase(
+                            "I can't make out the scene right now.",
+                            "मैं अभी दृश्य ठीक से नहीं समझ पा रही.",
+                            "मला आत्ता दृश्य नीट कळत नाहीये."
+                        )
+                    } else {
+                        phrase(
+                            "I can see ${labels.joinToString(", ")}.",
+                            "मुझे ${labels.joinToString(", ")} दिख रहा है.",
+                            "मला ${labels.joinToString(", ")} दिसतंय."
+                        )
+                    }
+                }
 
                 aiDescriptionResult = textDescription
                 addSceneToMemory(textDescription)
@@ -2865,21 +2888,38 @@ class DrishtiViewModel(
         }
     }
 
+    /**
+     * Reads signs, boards and documents with the on-device OCR model.
+     *
+     * Was a cloud vision call. OCR is a solved on-device problem — ML Kit runs it in about
+     * 100ms, offline and free — so paying a network round-trip (and failing entirely when
+     * the quota is spent) to read a signboard was the wrong trade for a blind user standing
+     * in front of it.
+     */
     fun analyzeImageForSignText(bitmap: Bitmap) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
 
         viewModelScope.launch {
-            val speakJob = speak(getProcessingMessage())
-            val textParsed = repository.analyzeCameraIntent(bitmap, "read letters or text from sign boards", groqApiKey, geminiApiKey, ttsLanguage)
-            
-            speakJob.join()
-
+            val textParsed = OnDeviceVision.readText(bitmap)
             aiTextReaderResult = textParsed
             isAnalyzing = false
             orbState = OrbState.IDLE
             triggerVibration(50L)
-            speak("Extracted sign alert: $textParsed")
+            if (textParsed.isBlank()) {
+                speak(phrase(
+                    "I could not find any readable text. Try holding the camera steady and closer.",
+                    "मुझे कोई पढ़ने लायक टेक्स्ट नहीं मिला. कैमरा स्थिर और थोड़ा पास रखो.",
+                    "मला वाचण्यासारखं काही सापडलं नाही. कॅमेरा स्थिर आणि जरा जवळ धर."
+                ))
+            } else {
+                speak(phrase(
+                    "It reads: $textParsed",
+                    "इस पर लिखा है: $textParsed",
+                    "यावर लिहिलंय: $textParsed"
+                ))
+                addSceneToMemory(textParsed)
+            }
         }
     }
 
@@ -2903,15 +2943,43 @@ class DrishtiViewModel(
     }
 
     // Feature 2: Face Expression Emotion Detection
+    /**
+     * Reports the expression of the nearest face using the on-device face model.
+     *
+     * Deliberately hedged wording: the model gives a smile probability, not a feeling.
+     * Telling a blind user "he is happy" from a photo is a claim the model cannot support,
+     * so this says how the face *looks* and nothing more.
+     */
     fun analyzeFacialEmotion(bitmap: Bitmap) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
-        speak(getProcessingMessage())
         viewModelScope.launch {
-            val result = repository.analyzeCameraIntent(bitmap, "detect focus face emotion expression position summary", groqApiKey, geminiApiKey, ttsLanguage)
+            val reading = OnDeviceVision.readFaces(bitmap)
+            val result = when {
+                reading.count == 0 -> phrase(
+                    "I don't see anyone's face in front of the camera.",
+                    "मुझे कैमरे के सामने किसी का चेहरा नहीं दिख रहा.",
+                    "मला कॅमेऱ्यासमोर कोणाचाही चेहरा दिसत नाही."
+                )
+                else -> {
+                    val smile = reading.smilingProbability
+                    val who = if (reading.count > 1) phrase(
+                        "There are ${reading.count} people. The closest one",
+                        "यहाँ ${reading.count} लोग हैं. सबसे पास वाला",
+                        "इथे ${reading.count} माणसं आहेत. सगळ्यात जवळचा"
+                    ) else phrase("The person", "सामने वाला", "समोरचा")
+                    val look = when {
+                        smile == null -> phrase("is facing you.", "तुम्हारी तरफ देख रहा है.", "तुझ्याकडे बघतोय.")
+                        smile > 0.7f -> phrase("looks like they are smiling.", "मुस्कुरा रहा लग रहा है.", "हसतोय असं वाटतंय.")
+                        smile > 0.35f -> phrase("has a slight smile.", "हल्का सा मुस्कुरा रहा है.", "थोडंसं हसतोय.")
+                        else -> phrase("has a neutral expression.", "का चेहरा शांत है.", "चा चेहरा शांत आहे.")
+                    }
+                    "$who $look"
+                }
+            }
             detectedEmotionResult = result
             speak(result)
-            addSceneToMemory(result)
+            if (reading.count > 0) addSceneToMemory(result)
             isAnalyzing = false
             orbState = OrbState.IDLE
             triggerVibration(50L)
@@ -2919,11 +2987,19 @@ class DrishtiViewModel(
     }
 
     // Feature 3: Currency Cash Note with Indian Rupee Training & Document Reader
+    /**
+     * Currency notes still use the cloud model; documents are read on-device.
+     *
+     * Reading a document is OCR, which the phone does in ~100ms. Telling a 100 from a 500
+     * is a fine-grained classification the generic on-device models cannot do, and getting
+     * it wrong costs a blind user real money — so that one path keeps the stronger cloud
+     * model rather than guessing locally. A small trained note classifier would replace it.
+     */
     fun scanCurrencyOrDocument(bitmap: Bitmap, isRupee: Boolean) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
-        speak(getProcessingMessage())
         if (isRupee) {
+            speak(getProcessingMessage())
             viewModelScope.launch {
                 val result = repository.analyzeCameraIntent(bitmap, "determine cash rupee currency note denomination value", groqApiKey, geminiApiKey, ttsLanguage)
                 currencyScanResult = result
@@ -2935,10 +3011,19 @@ class DrishtiViewModel(
             }
         } else {
             viewModelScope.launch {
-                val result = repository.analyzeCameraIntent(bitmap, "extract document ocr text read sign text clearly", groqApiKey, geminiApiKey, ttsLanguage)
+                val text = OnDeviceVision.readText(bitmap)
+                val result = if (text.isBlank()) {
+                    phrase(
+                        "I could not read any text on it. Hold it steady and a little closer.",
+                        "मुझे उस पर कोई टेक्स्ट नहीं दिखा. उसे स्थिर और थोड़ा पास रखो.",
+                        "मला त्यावर काही मजकूर दिसला नाही. तो स्थिर आणि जरा जवळ धर."
+                    )
+                } else {
+                    phrase("It reads: $text", "इस पर लिखा है: $text", "यावर लिहिलंय: $text")
+                }
                 currencyScanResult = result
                 speak(result)
-                addSceneToMemory(result)
+                if (text.isNotBlank()) addSceneToMemory(result)
                 isAnalyzing = false
                 orbState = OrbState.IDLE
                 triggerVibration(50L)
@@ -2947,25 +3032,38 @@ class DrishtiViewModel(
     }
 
     // Feature 4: Smart Obstacle Motion Prediction
+    /**
+     * Names the nearest hazard from the on-device detector.
+     *
+     * Was a cloud call, which is the wrong tool for "is something about to hit me" — by the
+     * time a round-trip returns, the user has already walked into it. The offline detector
+     * answers in ~50-100ms and works with no network.
+     */
     fun predictObstacleKineticMotion(bitmap: Bitmap) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
-        speak(getProcessingMessage())
         viewModelScope.launch {
-            val result = repository.analyzeCameraIntent(bitmap, "predict kinetic obstacle dynamic movement hazards tracks safety", groqApiKey, geminiApiKey, ttsLanguage)
-            smartObstaclePrediction = result
-            speak(result)
-            
-            // Sonar proximity triggers
-            if (result.contains("meter", ignoreCase = true) || result.contains("close", ignoreCase = true) || result.contains("danger", ignoreCase = true)) {
-                val dist = if (result.contains("1 ") || result.contains("0.")) 0.4f else 1.1f
-                playObstacleSonarBeeps(dist)
+            val top = withContext(Dispatchers.Default) {
+                obtainDetector()?.detect(bitmap, ObstacleDetector.OUTDOOR_LABELS + ObstacleDetector.INDOOR_LABELS)
+                    ?.firstOrNull()
             }
-            
-            addSceneToMemory(result)
+            val result = if (top == null) {
+                phrase(
+                    "I don't see anything in your way right now.",
+                    "अभी तुम्हारे रास्ते में कुछ नहीं दिख रहा.",
+                    "आत्ता तुझ्या वाटेत काही दिसत नाहीये."
+                )
+            } else {
+                buildFastObstacleSentence(top)
+            }
+            smartObstaclePrediction = result
+            speak(result, SpeechPriority.OBSTACLE, bypassCooldown = true)
+            if (top != null) {
+                if (top.proximity == ObstacleDetector.Proximity.VERY_CLOSE) playObstacleSonarBeeps(0.8f)
+                addSceneToMemory(result)
+            }
             isAnalyzing = false
             orbState = OrbState.IDLE
-            triggerVibration(50L)
         }
     }
 
@@ -3936,15 +4034,38 @@ class DrishtiViewModel(
     }
 
     // Feature 9: Food Pack expiry ingredients scanner
+    /**
+     * Reads a product label on-device: barcode first, then OCR of the packaging text.
+     *
+     * The barcode is tried first because it is exact where OCR is a guess, and a label with
+     * a barcode almost always has one in frame.
+     */
     fun scanPackagingOrLabels(bitmap: Bitmap) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
-        speak(getProcessingMessage())
         viewModelScope.launch {
-            val result = repository.analyzeCameraIntent(bitmap, "read packaging ingredients labels expiry details dairy lactose info", groqApiKey, geminiApiKey, ttsLanguage)
+            val barcode = OnDeviceVision.readBarcode(bitmap)
+            val label = OnDeviceVision.readText(bitmap)
+            val result = when {
+                label.isNotBlank() -> phrase(
+                    "The label says: $label",
+                    "लेबल पर लिखा है: $label",
+                    "लेबलवर लिहिलंय: $label"
+                )
+                barcode != null -> phrase(
+                    "I can only see a barcode, number $barcode.",
+                    "मुझे सिर्फ़ बारकोड दिख रहा है, नंबर $barcode.",
+                    "मला फक्त बारकोड दिसतोय, नंबर $barcode."
+                )
+                else -> phrase(
+                    "I can't read the label. Hold the packet steady and a little closer.",
+                    "लेबल पढ़ नहीं पा रही. पैकेट स्थिर और थोड़ा पास रखो.",
+                    "लेबल वाचता येत नाहीये. पाकीट स्थिर आणि जरा जवळ धर."
+                )
+            }
             productScanResult = result
             speak(result)
-            addSceneToMemory(result)
+            if (label.isNotBlank()) addSceneToMemory(result)
             isAnalyzing = false
             orbState = OrbState.IDLE
             triggerVibration(50L)
@@ -4176,52 +4297,28 @@ class DrishtiViewModel(
         }
     }
 
+    /**
+     * Names the colour at the centre of the frame from the pixels themselves.
+     *
+     * No model and no network: this was a cloud vision call, which is an absurd amount of
+     * latency and quota to spend reading pixels the phone already holds. Averaged over a
+     * centre patch so a single noisy pixel cannot decide the answer.
+     */
     fun identifyColorAtCenter(bitmap: Bitmap) {
         isAnalyzing = true
         orbState = OrbState.PROCESSING
-        speak(getProcessingMessage())
-        
-        // Local name resolver
-        val width = bitmap.width
-        val height = bitmap.height
-        val centerPixel = bitmap.getPixel(width / 2, height / 2)
-        val r = android.graphics.Color.red(centerPixel)
-        val g = android.graphics.Color.green(centerPixel)
-        val b = android.graphics.Color.blue(centerPixel)
-
-        val baseColors = mapOf(
-            "Red" to Triple(255, 0, 0),
-            "Green" to Triple(0, 180, 0),
-            "Blue" to Triple(0, 0, 255),
-            "Yellow" to Triple(255, 235, 0),
-            "Orange" to Triple(255, 120, 0),
-            "Purple" to Triple(128, 0, 128),
-            "White" to Triple(255, 255, 255),
-            "Black" to Triple(15, 15, 15),
-            "Gray" to Triple(120, 120, 120),
-            "Brown" to Triple(100, 50, 20),
-            "Pink" to Triple(255, 150, 180)
-        )
-        var matchedColorName = "Unknown"
-        var minDistance = Double.MAX_VALUE
-        for ((name, rgb) in baseColors) {
-            val dist = sqrt(((r - rgb.first) * (r - rgb.first) + (g - rgb.second) * (g - rgb.second) + (b - rgb.third) * (b - rgb.third)).toDouble())
-            if (dist < minDistance) {
-                minDistance = dist
-                matchedColorName = name
-            }
-        }
-        
-        speak("Quick detect color is $matchedColorName.")
-        
-        // Also perform detailed Gemini analysis
         viewModelScope.launch {
-            val detail = repository.analyzeCameraIntent(bitmap, "describe the dominant color shade, lighting, and visual tone in detail for a blind person", groqApiKey, geminiApiKey, ttsLanguage)
-            detectedColorName = "$matchedColorName: $detail"
-            speak(detail)
-            addSceneToMemory("Color detection: $matchedColorName. Description: $detail")
+            val name = OnDeviceVision.centreColorName(bitmap)
+            val localised = OnDeviceVision.colorNameLocalised(name, ttsLanguage)
+            val result = phrase(
+                "It looks $localised.",
+                "यह $localised दिख रहा है.",
+                "हे $localised दिसतंय."
+            )
+            speak(result)
             isAnalyzing = false
             orbState = OrbState.IDLE
+            triggerVibration(50L)
         }
     }
 
