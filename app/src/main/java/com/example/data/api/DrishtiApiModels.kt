@@ -13,8 +13,15 @@ object DrishtiModels {
     const val GEMINI_PRIMARY = "gemini-2.5-flash"
     // "latest" alias survives version retirements.
     const val GEMINI_FALLBACK = "gemini-flash-latest"
-    const val GROQ_TEXT = "llama-3.3-70b-versatile"
-    const val GROQ_TEXT_FALLBACK = "llama-3.1-8b-instant"
+    // Both llama-3.3-70b-versatile and llama-3.1-8b-instant were retired from Groq and now
+    // 404, so conversation was failing on primary AND fallback and silently falling through
+    // to Gemini. Verified live on the project's key 2026-09-09.
+    //
+    // Not the openai/gpt-oss-* models as primary: they are reasoning models that return the
+    // answer in `reasoning` and leave `content` empty unless given a large token budget,
+    // which reaches the user as silence.
+    const val GROQ_TEXT = "qwen/qwen3.8-27b"
+    const val GROQ_TEXT_FALLBACK = "groq/compound"
     // Groq vision (llama-4-scout) was decommissioned and no vision model is
     // available on the current Groq plan, so Gemini is the vision path.
     const val GROQ_VISION = "meta-llama/llama-4-scout-17b-16e-instruct"

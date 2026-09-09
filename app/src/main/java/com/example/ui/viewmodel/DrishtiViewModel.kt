@@ -2617,6 +2617,20 @@ class DrishtiViewModel(
                 isLiveNav -> startLiveNavigation()
                 // Command 1: open camera + scan
                 isCameraScan -> scanOnce()
+
+                // On-device vision features. These matchers existed but were never
+                // dispatched, so saying "रंग ओळखा" fell through to the conversational AI
+                // and the feature was unreachable by voice. Each now runs a local model.
+                isReadText -> triggerVoiceVisionAction("sign", phrase(
+                    "Reading the text.", "टेक्स्ट पढ़ रही हूँ.", "मजकूर वाचतेय."))
+                isColor -> triggerVoiceVisionAction("color", phrase(
+                    "Checking the colour.", "रंग देख रही हूँ.", "रंग बघतेय."))
+                isEmotion -> triggerVoiceVisionAction("emotion", phrase(
+                    "Looking at the face.", "चेहरा देख रही हूँ.", "चेहरा बघतेय."))
+                isProduct -> triggerVoiceVisionAction("product", phrase(
+                    "Reading the label.", "लेबल पढ़ रही हूँ.", "लेबल वाचतेय."))
+                isCurrency -> triggerVoiceVisionAction("currency", phrase(
+                    "Checking the note.", "नोट देख रही हूँ.", "नोट बघतेय."))
                 isCloseCamera -> { _navigationEvents.tryEmit("dashboard"); stopAllVisionAndNavigation(); orbState = OrbState.IDLE }
 
                 // Retained basics (conversational core stays)
@@ -3328,19 +3342,39 @@ class DrishtiViewModel(
     private fun startOutdoorFastLoop() {
         outdoorFastJob?.cancel()
         outdoorFastJob = viewModelScope.launch(Dispatchers.Default) {
-            val detector = obtainDetector() ?: return@launch
+            val detector = obtainDetector() ?: run {
+                Log.e("DrishtiNav", "fast loop: detector unavailable")
+                return@launch
+            }
+            Log.i("DrishtiNav", "fast loop: detector ready")
             var lastProcessedStamp = 0L
+            var starvedLogged = false
             while (fastLayerActive()) {
                 val frame = latestNavFrame
                 val stamp = latestNavFrameTime
                 if (frame == null || stamp == lastProcessedStamp) {
+                    if (frame == null && !starvedLogged) {
+                        Log.w("DrishtiNav", "fast loop: no camera frame yet - analyzer not attached?")
+                        starvedLogged = true
+                    }
                     delay(120)
                     continue
                 }
+                starvedLogged = false
                 lastProcessedStamp = stamp
-                val top = detector.detect(frame, ObstacleDetector.DANGER_LABELS).firstOrNull()
+
+                // Indoors the hazards are the furniture you walk into; outdoors they are
+                // vehicles and riders. Using the street danger-set indoors left the fast
+                // layer with nothing it was allowed to report, so it went silent exactly
+                // where it was needed - a bed and a door in frame produced no warning.
+                val indoors = smartNavEnvironment != "outdoor"
+                val labels = if (indoors) ObstacleDetector.INDOOR_LABELS else ObstacleDetector.DANGER_LABELS
+                val found = detector.detect(frame, labels)
+                Log.d("DrishtiNav", "fast loop (${if (indoors) "indoor" else "outdoor"}) saw: " +
+                    if (found.isEmpty()) "nothing" else found.joinToString { "${it.label}/${it.proximity}" })
+                val top = found.firstOrNull()
                 if (!fastLayerActive()) break
-                if (top != null) announceObstacle(top, indoor = false)
+                if (top != null) announceObstacle(top, indoor = indoors)
             }
         }
     }
@@ -3357,8 +3391,12 @@ class DrishtiViewModel(
      * (escalates to VERY_CLOSE) or a long while has passed.
      */
     private fun announceObstacle(obstacle: ObstacleDetector.Obstacle, indoor: Boolean) {
-        // In smart mode the AI layer already describes people indoors - don't say it twice.
-        if (!indoor && isSmartNavActive && smartNavEnvironment != "outdoor" && obstacle.label == "person") return
+        // A person very close is worth saying even indoors. This used to drop every indoor
+        // person detection to avoid double-announcing with the cloud layer, but person is
+        // the only danger-class label that appears indoors, so it silenced the fast layer
+        // entirely. Only the non-urgent case defers to the cloud description now.
+        if (indoor && isSmartNavActive && obstacle.label == "person" &&
+            obstacle.proximity != ObstacleDetector.Proximity.VERY_CLOSE) return
 
         val now = System.currentTimeMillis()
         val urgent = obstacle.proximity == ObstacleDetector.Proximity.VERY_CLOSE
