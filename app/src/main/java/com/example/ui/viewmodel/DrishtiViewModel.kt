@@ -2471,6 +2471,7 @@ class DrishtiViewModel(
             .replace("amity academy of engineering", "mit academy of engineering")
             .replace("amity college of engineering", "mit academy of engineering")
             .replace("amity academy", "mit academy")
+        Log.i("DrishtiHeard", "recognised: \"$recognizedText\"")
         transcriptState = "Hearing: \"$recognizedText\""
         orbState = OrbState.PROCESSING
 
@@ -2578,7 +2579,24 @@ class DrishtiViewModel(
                 command.contains("\u0915\u0948\u092e\u0930\u093e \u0916\u094b\u0932") ||          // कैमरा खोल
                 command.contains("scan") || command.contains("\u0938\u094d\u0915\u0945\u0928")       // स्कॅन
             // 2) live navigation (camera obstacle detection)
+            // Stem matching, not exact phrases. The recogniser spells Marathi back many
+            // ways ("लाईव्ह"/"लाइव्ह", "नेव्हिगेशन"/"नेविगेशन") and any phrase it spells
+            // differently used to fall through to the conversational AI, which then
+            // invented capabilities - telling the user it had no camera and asking if they
+            // were sitting in a car. A near-miss on a navigation command must never become
+            // small talk.
+            // "take me to X" is a different command (GPS route), so a destination marker
+            // means this is NOT the plain live-navigation intent.
+            val mentionsDestination = command.contains("navigate me to") ||
+                command.contains("take me to") || command.contains("पर्यंत") ||
+                command.contains("pohochav") || command.contains("पोहोचव") ||
+                command.contains("कडे ने") || command.contains("go to")
+            val mentionsNav = command.contains("navigat") || command.contains("नेव्ह") ||
+                command.contains("नेवि") || command.contains("नेव्ही") ||
+                command.contains("मार्गदर्शन") || command.contains("margdarshan") ||
+                command.contains("मार्ग दाखव") || command.contains("वाट दाखव")
             val isLiveNav = isSmartNavigation || isIndoorNavigation || isOutdoorNavigation ||
+                (mentionsNav && !mentionsDestination) ||
                 command.contains("live navigation") || command.contains("live nav") ||
                 command.contains("navigation suru") || command.contains("navigation chalu") ||
                 command.contains("thet margdarshan") ||
