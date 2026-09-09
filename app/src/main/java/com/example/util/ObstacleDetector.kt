@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
-import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 
@@ -41,41 +40,14 @@ class ObstacleDetector(context: Context) {
 
     private val detector: ObjectDetector
 
-    /** True when inference is running on the GPU rather than the CPU. */
-    var usingGpu: Boolean = false
-        private set
-
     init {
-        // GPU delegate first. Measured on device, CPU inference was ~150ms; on a walking
-        // user that is the difference between a warning and a collision, and the GPU path
-        // is the single biggest win available without changing the model. Falls back to CPU
-        // where the delegate is unsupported, because a slower warning still beats none.
-        detector = buildDetector(context, useGpu = true)
-            ?: buildDetector(context, useGpu = false)
-            ?: error("Could not create ObjectDetector on GPU or CPU")
-    }
-
-    private fun buildDetector(context: Context, useGpu: Boolean): ObjectDetector? = try {
-        val base = BaseOptions.builder()
-            .setModelAssetPath(MODEL_ASSET)
-            .apply { if (useGpu) setDelegate(Delegate.GPU) }
-            .build()
         val options = ObjectDetector.ObjectDetectorOptions.builder()
-            .setBaseOptions(base)
+            .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL_ASSET).build())
             .setRunningMode(RunningMode.IMAGE)
             .setMaxResults(5)
-            // 0.40 let single weak guesses through - a white door read as "refrigerator"
-            // and was spoken to the user. Raised so only confident detections survive;
-            // DetectionStabilizer then requires the label to persist across frames.
-            .setScoreThreshold(0.55f)
+            .setScoreThreshold(0.40f)
             .build()
-        ObjectDetector.createFromOptions(context, options).also {
-            usingGpu = useGpu
-            Log.i(TAG, "Detector created on ${if (useGpu) "GPU" else "CPU"}")
-        }
-    } catch (e: Throwable) {
-        Log.w(TAG, "Could not create detector on ${if (useGpu) "GPU" else "CPU"}", e)
-        null
+        detector = ObjectDetector.createFromOptions(context, options)
     }
 
     /**
@@ -176,42 +148,4 @@ class ObstacleDetector(context: Context) {
             "suitcase", "backpack", "bicycle", "dog", "cat"
         )
     }
-}
-
-/**
- * Suppresses one-frame detection flicker.
- *
- * The detector is a per-frame classifier with no memory: it re-guesses every frame, and a
- * single bad guess used to be announced immediately - which is how a user standing in a
- * room with no fridge was told there was a refrigerator very close to them. Requiring a
- * label to appear in several of the recent frames turns a momentary misfire into silence,
- * while a real object - which persists - still gets through in a fraction of a second.
- *
- * Not learning. The model does not improve with use; this only filters its output.
- */
-class DetectionStabilizer(
-    private val requiredHits: Int = 3,
-    private val windowSize: Int = 5
-) {
-    private val recent = ArrayDeque<Set<String>>()
-
-    /** Feed one frame's detections; returns only those seen often enough to trust. */
-    fun confirm(detections: List<ObstacleDetector.Obstacle>): List<ObstacleDetector.Obstacle> {
-        recent.addLast(detections.map { it.label }.toSet())
-        while (recent.size > windowSize) recent.removeFirst()
-
-        return detections.filter { obstacle ->
-            val hits = recent.count { obstacle.label in it }
-            // Something about to be walked into is reported on fewer confirmations - the
-            // cost of a late warning is higher than the cost of an occasional wrong one.
-            val needed = if (obstacle.proximity == ObstacleDetector.Proximity.VERY_CLOSE) {
-                (requiredHits - 1).coerceAtLeast(2)
-            } else {
-                requiredHits
-            }
-            hits >= needed
-        }
-    }
-
-    fun reset() = recent.clear()
 }

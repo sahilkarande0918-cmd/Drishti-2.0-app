@@ -24,8 +24,6 @@ class DrishtiRepository(
     private val osrmService: OsrmService
 ) {
     private var lastRequestTime = 0L
-    @Volatile
-    private var lastVisionFailureIntent: String? = null
 
     // Set to false permanently once Groq reports its vision model is gone, so that
     // camera features do not retry a call that can never succeed.
@@ -47,21 +45,6 @@ class DrishtiRepository(
                 text.contains("not supported for generatecontent") ||
                 text.contains("model_decommissioned")
         }
-
-        /**
-         * Marks a reply as "vision could not answer", so callers can tell a real
-         * observation from a failure notice.
-         *
-         * Without a marker the failure sentence is just another string, and a caller
-         * happily spoke it as though it were a description of the room. Stripped before
-         * anything is spoken - see [describeVisionFailure] and [isVisionUnavailable].
-         */
-        const val VISION_UNAVAILABLE_PREFIX = "[[vision-unavailable]] "
-
-        fun isVisionUnavailable(text: String): Boolean = text.startsWith(VISION_UNAVAILABLE_PREFIX)
-
-        /** The human-readable half of a vision-failure reply. */
-        fun describeVisionFailure(text: String): String = text.removePrefix(VISION_UNAVAILABLE_PREFIX)
 
         /** True when the provider rejected the call for billing/quota reasons. */
         fun isQuotaFailure(e: Exception): Boolean {
@@ -607,22 +590,8 @@ class DrishtiRepository(
                 "read that packaging"
             else -> "see your surroundings"
         }
-        // Returns EMPTY, not a sentence.
-        //
-        // This used to hand back "my vision service isn't responding", and eight callers
-        // spoke whatever they were given - so a rate-limited key turned into that sentence
-        // read aloud over and over by the continuous navigation loops. An empty result
-        // means "no observation", which every loop already knows how to skip.
-        //
-        // Callers that are user-initiated (a one-shot scan) should say something rather
-        // than nothing: they call [visionUnavailableMessage] explicitly.
-        lastVisionFailureIntent = what
-        return ""
+        return "I can't $what right now, my vision service isn't responding. Please stay where you are and try again in a moment."
     }
-
-    /** Spoken text for a user-initiated scan that could not reach the vision model. */
-    fun visionUnavailableMessage(): String =
-        "I can't ${lastVisionFailureIntent ?: "see that"} right now. Please try again in a moment."
 
     suspend fun getGeminiTextResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {
         val currentUser = getUserOneShot()

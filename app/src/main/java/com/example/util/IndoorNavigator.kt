@@ -60,14 +60,7 @@ class IndoorFrameAnalyzer(
     }
 
     companion object {
-        // 300ms starved the detector: a frame was already ~230ms stale by the time it was
-        // processed, and the 3-frame confirmation then cost ~1.2s end to end - about 1.7m
-        // of walking before the user heard anything. The camera runs at 30fps, so this only
-        // has to stay above one inference.
-        private const val MIN_FRAME_INTERVAL_MS = 60L
-
-        // EfficientDet-Lite0's native input is 320x320. Handing it 640 made MediaPipe
-        // downscale internally anyway - pure wasted latency for zero extra accuracy.
-        private const val TARGET_LONGEST_SIDE = 320f
+        private const val MIN_FRAME_INTERVAL_MS = 300L
+        private const val TARGET_LONGEST_SIDE = 640f
     }
 }
