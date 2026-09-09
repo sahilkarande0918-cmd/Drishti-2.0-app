@@ -46,6 +46,21 @@ class DrishtiRepository(
                 text.contains("model_decommissioned")
         }
 
+        /**
+         * Marks a reply as "vision could not answer", so callers can tell a real
+         * observation from a failure notice.
+         *
+         * Without a marker the failure sentence is just another string, and a caller
+         * happily spoke it as though it were a description of the room. Stripped before
+         * anything is spoken - see [describeVisionFailure] and [isVisionUnavailable].
+         */
+        const val VISION_UNAVAILABLE_PREFIX = "[[vision-unavailable]] "
+
+        fun isVisionUnavailable(text: String): Boolean = text.startsWith(VISION_UNAVAILABLE_PREFIX)
+
+        /** The human-readable half of a vision-failure reply. */
+        fun describeVisionFailure(text: String): String = text.removePrefix(VISION_UNAVAILABLE_PREFIX)
+
         /** True when the provider rejected the call for billing/quota reasons. */
         fun isQuotaFailure(e: Exception): Boolean {
             val http = e as? retrofit2.HttpException
@@ -590,7 +605,7 @@ class DrishtiRepository(
                 "read that packaging"
             else -> "see your surroundings"
         }
-        return "I can't $what right now, my vision service isn't responding. Please stay where you are and try again in a moment."
+        return VISION_UNAVAILABLE_PREFIX + "I can't $what right now, my vision service isn't responding. Please stay where you are and try again in a moment."
     }
 
     suspend fun getGeminiTextResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {

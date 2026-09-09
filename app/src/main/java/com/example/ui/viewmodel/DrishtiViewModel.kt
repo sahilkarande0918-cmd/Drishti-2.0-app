@@ -2855,34 +2855,32 @@ class DrishtiViewModel(
 
         viewModelScope.launch {
             try {
-                speak(getProcessingMessage())
+                // ON-DEVICE FIRST. The object labeller runs locally in ~150ms and cannot
+                // fail on quota, so it decides what we say. The cloud is only asked to
+                // upgrade that into a fluent sentence, with a short timeout, and only when
+                // it is not already rate-limited.
+                //
+                // It used to be the other way round, which meant a 429 - and vision burns
+                // quota far faster than text - reached the user as "my vision service isn't
+                // responding" instead of the description the phone could have produced
+                // unaided.
+                val labels = OnDeviceVision.labelScene(bitmap)
+                val onDevice = if (labels.isEmpty()) null else phrase(
+                    "I can see ${labels.joinToString(", ")}.",
+                    "मुझे ${labels.joinToString(", ")} दिख रहा है.",
+                    "मला ${labels.joinToString(", ")} दिसतंय."
+                )
 
-                // Scene description is the one feature that genuinely needs a cloud
-                // vision-language model, so it is tried first - but its old fallback
-                // asserted "the path ahead looks clear" without having seen anything at
-                // all. A blind user cannot check that, and would step forward on it. When
-                // the cloud is unavailable we now report what the on-device labeller
-                // actually sees, or admit we cannot see.
-                val cloud = kotlinx.coroutines.withTimeoutOrNull(20_000L) {
-                    repository.analyzeCameraIntent(bitmap, "general scene overview", groqApiKey, geminiApiKey, ttsLanguage)
-                }?.takeIf { it.isNotBlank() && !it.startsWith("Using offline description") }
+                val cloud = if (DrishtiRepository.visionThrottled()) null else
+                    kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+                        repository.analyzeCameraIntent(bitmap, "general scene overview", groqApiKey, geminiApiKey, ttsLanguage)
+                    }?.takeIf { it.isNotBlank() && !DrishtiRepository.isVisionUnavailable(it) }
 
-                val textDescription = cloud ?: run {
-                    val labels = OnDeviceVision.labelScene(bitmap)
-                    if (labels.isEmpty()) {
-                        phrase(
-                            "I can't make out the scene right now.",
-                            "मैं अभी दृश्य ठीक से नहीं समझ पा रही.",
-                            "मला आत्ता दृश्य नीट कळत नाहीये."
-                        )
-                    } else {
-                        phrase(
-                            "I can see ${labels.joinToString(", ")}.",
-                            "मुझे ${labels.joinToString(", ")} दिख रहा है.",
-                            "मला ${labels.joinToString(", ")} दिसतंय."
-                        )
-                    }
-                }
+                val textDescription = cloud ?: onDevice ?: phrase(
+                    "I can't make out the scene right now.",
+                    "मैं अभी दृश्य ठीक से नहीं समझ पा रही.",
+                    "मला आत्ता दृश्य नीट कळत नाहीये."
+                )
 
                 aiDescriptionResult = textDescription
                 addSceneToMemory(textDescription)
