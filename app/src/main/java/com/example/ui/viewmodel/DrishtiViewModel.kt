@@ -20,6 +20,7 @@ import com.example.data.api.OsrmStep
 import com.example.data.api.GroqMessage
 import com.example.data.database.*
 import com.example.data.repository.DrishtiRepository
+import com.example.util.DetectionStabilizer
 import com.example.util.ObstacleDetector
 import com.example.util.OnDeviceVision
 import com.google.android.gms.location.LocationServices
@@ -3353,6 +3354,8 @@ class DrishtiViewModel(
                 return@launch
             }
             Log.i("DrishtiNav", "fast loop: detector ready")
+            // Per-frame guesses flicker; a single bad frame must not reach the user.
+            val stabilizer = DetectionStabilizer()
             var lastProcessedStamp = 0L
             var starvedLogged = false
             while (fastLayerActive()) {
@@ -3375,9 +3378,13 @@ class DrishtiViewModel(
                 // where it was needed - a bed and a door in frame produced no warning.
                 val indoors = smartNavEnvironment != "outdoor"
                 val labels = if (indoors) ObstacleDetector.INDOOR_LABELS else ObstacleDetector.DANGER_LABELS
-                val found = detector.detect(frame, labels)
-                Log.d("DrishtiNav", "fast loop (${if (indoors) "indoor" else "outdoor"}) saw: " +
-                    if (found.isEmpty()) "nothing" else found.joinToString { "${it.label}/${it.proximity}" })
+                val raw = detector.detect(frame, labels)
+                val found = stabilizer.confirm(raw)
+                if (raw.isNotEmpty()) {
+                    Log.d("DrishtiNav", "fast loop (${if (indoors) "indoor" else "outdoor"}) raw=" +
+                        raw.joinToString { "${it.label}/${it.proximity}" } +
+                        " confirmed=" + if (found.isEmpty()) "none" else found.joinToString { it.label })
+                }
                 val top = found.firstOrNull()
                 if (!fastLayerActive()) break
                 if (top != null) announceObstacle(top, indoor = indoors)

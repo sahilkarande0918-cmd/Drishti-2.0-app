@@ -45,7 +45,10 @@ class ObstacleDetector(context: Context) {
             .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL_ASSET).build())
             .setRunningMode(RunningMode.IMAGE)
             .setMaxResults(5)
-            .setScoreThreshold(0.40f)
+            // 0.40 let single weak guesses through - a white door read as "refrigerator"
+            // and was spoken to the user. Raised so only confident detections survive;
+            // DetectionStabilizer then requires the label to persist across frames.
+            .setScoreThreshold(0.55f)
             .build()
         detector = ObjectDetector.createFromOptions(context, options)
     }
@@ -148,4 +151,42 @@ class ObstacleDetector(context: Context) {
             "suitcase", "backpack", "bicycle", "dog", "cat"
         )
     }
+}
+
+/**
+ * Suppresses one-frame detection flicker.
+ *
+ * The detector is a per-frame classifier with no memory: it re-guesses every frame, and a
+ * single bad guess used to be announced immediately - which is how a user standing in a
+ * room with no fridge was told there was a refrigerator very close to them. Requiring a
+ * label to appear in several of the recent frames turns a momentary misfire into silence,
+ * while a real object - which persists - still gets through in a fraction of a second.
+ *
+ * Not learning. The model does not improve with use; this only filters its output.
+ */
+class DetectionStabilizer(
+    private val requiredHits: Int = 3,
+    private val windowSize: Int = 5
+) {
+    private val recent = ArrayDeque<Set<String>>()
+
+    /** Feed one frame's detections; returns only those seen often enough to trust. */
+    fun confirm(detections: List<ObstacleDetector.Obstacle>): List<ObstacleDetector.Obstacle> {
+        recent.addLast(detections.map { it.label }.toSet())
+        while (recent.size > windowSize) recent.removeFirst()
+
+        return detections.filter { obstacle ->
+            val hits = recent.count { obstacle.label in it }
+            // Something about to be walked into is reported on fewer confirmations - the
+            // cost of a late warning is higher than the cost of an occasional wrong one.
+            val needed = if (obstacle.proximity == ObstacleDetector.Proximity.VERY_CLOSE) {
+                (requiredHits - 1).coerceAtLeast(2)
+            } else {
+                requiredHits
+            }
+            hits >= needed
+        }
+    }
+
+    fun reset() = recent.clear()
 }
