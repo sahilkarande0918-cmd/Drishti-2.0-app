@@ -3013,10 +3013,18 @@ class DrishtiViewModel(
         if (isRupee) {
             speak(getProcessingMessage())
             viewModelScope.launch {
-                val result = repository.analyzeCameraIntent(bitmap, "determine cash rupee currency note denomination value", groqApiKey, geminiApiKey, ttsLanguage)
+                val raw = repository.analyzeCameraIntent(bitmap, "determine cash rupee currency note denomination value", groqApiKey, geminiApiKey, ttsLanguage)
+                // A one-shot scan the user asked for must answer, even when the model is
+                // unreachable - silence would leave them holding a note with no idea what
+                // happened. The continuous loops stay quiet instead; only this path speaks.
+                val result = if (raw.isBlank()) phrase(
+                    "I can't check that note right now. Please try again in a moment.",
+                    "मैं अभी वह नोट नहीं देख पा रही. थोड़ी देर बाद फिर कोशिश करो.",
+                    "मला आत्ता ती नोट बघता येत नाहीये. जरा वेळाने पुन्हा प्रयत्न कर."
+                ) else raw
                 currencyScanResult = result
                 speak(result)
-                addSceneToMemory(result)
+                if (raw.isNotBlank()) addSceneToMemory(result)
                 isAnalyzing = false
                 orbState = OrbState.IDLE
                 triggerVibration(50L)

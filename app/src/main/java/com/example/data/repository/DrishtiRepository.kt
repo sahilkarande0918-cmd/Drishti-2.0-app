@@ -24,6 +24,8 @@ class DrishtiRepository(
     private val osrmService: OsrmService
 ) {
     private var lastRequestTime = 0L
+    @Volatile
+    private var lastVisionFailureIntent: String? = null
 
     // Set to false permanently once Groq reports its vision model is gone, so that
     // camera features do not retry a call that can never succeed.
@@ -605,8 +607,22 @@ class DrishtiRepository(
                 "read that packaging"
             else -> "see your surroundings"
         }
-        return VISION_UNAVAILABLE_PREFIX + "I can't $what right now, my vision service isn't responding. Please stay where you are and try again in a moment."
+        // Returns EMPTY, not a sentence.
+        //
+        // This used to hand back "my vision service isn't responding", and eight callers
+        // spoke whatever they were given - so a rate-limited key turned into that sentence
+        // read aloud over and over by the continuous navigation loops. An empty result
+        // means "no observation", which every loop already knows how to skip.
+        //
+        // Callers that are user-initiated (a one-shot scan) should say something rather
+        // than nothing: they call [visionUnavailableMessage] explicitly.
+        lastVisionFailureIntent = what
+        return ""
     }
+
+    /** Spoken text for a user-initiated scan that could not reach the vision model. */
+    fun visionUnavailableMessage(): String =
+        "I can't ${lastVisionFailureIntent ?: "see that"} right now. Please try again in a moment."
 
     suspend fun getGeminiTextResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {
         val currentUser = getUserOneShot()
