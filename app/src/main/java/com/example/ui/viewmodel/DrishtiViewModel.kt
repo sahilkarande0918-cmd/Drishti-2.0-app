@@ -3366,7 +3366,9 @@ class DrishtiViewModel(
                         Log.w("DrishtiNav", "fast loop: no camera frame yet - analyzer not attached?")
                         starvedLogged = true
                     }
-                    delay(120)
+                    // Poll tightly: the camera now delivers a frame every ~60ms and a 120ms
+                    // poll would put a stale frame back at the front of the queue.
+                    delay(25)
                     continue
                 }
                 starvedLogged = false
@@ -3378,8 +3380,11 @@ class DrishtiViewModel(
                 // where it was needed - a bed and a door in frame produced no warning.
                 val indoors = smartNavEnvironment != "outdoor"
                 val labels = if (indoors) ObstacleDetector.INDOOR_LABELS else ObstacleDetector.DANGER_LABELS
+                val tInfer = System.nanoTime()
                 val raw = detector.detect(frame, labels)
+                val inferMs = (System.nanoTime() - tInfer) / 1_000_000
                 val found = stabilizer.confirm(raw)
+                Log.d("DrishtiPerf", "inference=${inferMs}ms frameAge=${System.currentTimeMillis() - stamp}ms gpu=${detector.usingGpu}")
                 if (raw.isNotEmpty()) {
                     Log.d("DrishtiNav", "fast loop (${if (indoors) "indoor" else "outdoor"}) raw=" +
                         raw.joinToString { "${it.label}/${it.proximity}" } +

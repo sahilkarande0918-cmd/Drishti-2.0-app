@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 
@@ -40,9 +41,27 @@ class ObstacleDetector(context: Context) {
 
     private val detector: ObjectDetector
 
+    /** True when inference is running on the GPU rather than the CPU. */
+    var usingGpu: Boolean = false
+        private set
+
     init {
+        // GPU delegate first. Measured on device, CPU inference was ~150ms; on a walking
+        // user that is the difference between a warning and a collision, and the GPU path
+        // is the single biggest win available without changing the model. Falls back to CPU
+        // where the delegate is unsupported, because a slower warning still beats none.
+        detector = buildDetector(context, useGpu = true)
+            ?: buildDetector(context, useGpu = false)
+            ?: error("Could not create ObjectDetector on GPU or CPU")
+    }
+
+    private fun buildDetector(context: Context, useGpu: Boolean): ObjectDetector? = try {
+        val base = BaseOptions.builder()
+            .setModelAssetPath(MODEL_ASSET)
+            .apply { if (useGpu) setDelegate(Delegate.GPU) }
+            .build()
         val options = ObjectDetector.ObjectDetectorOptions.builder()
-            .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL_ASSET).build())
+            .setBaseOptions(base)
             .setRunningMode(RunningMode.IMAGE)
             .setMaxResults(5)
             // 0.40 let single weak guesses through - a white door read as "refrigerator"
@@ -50,7 +69,13 @@ class ObstacleDetector(context: Context) {
             // DetectionStabilizer then requires the label to persist across frames.
             .setScoreThreshold(0.55f)
             .build()
-        detector = ObjectDetector.createFromOptions(context, options)
+        ObjectDetector.createFromOptions(context, options).also {
+            usingGpu = useGpu
+            Log.i(TAG, "Detector created on ${if (useGpu) "GPU" else "CPU"}")
+        }
+    } catch (e: Throwable) {
+        Log.w(TAG, "Could not create detector on ${if (useGpu) "GPU" else "CPU"}", e)
+        null
     }
 
     /**
