@@ -96,10 +96,30 @@ object DrishtiApiClient {
         .addInterceptor(loggingInterceptor)
         .build()
 
+    /**
+     * Backup Gemini key (second priority). When the first key answers 429 (quota used up),
+     * the same request is repeated once with the backup key. Nothing else changes.
+     */
+    private val geminiBackupKeyInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val response = chain.proceed(request)
+        val backupKey = com.example.BuildConfig.GEMINI_API_KEY_2
+        val usedKey = request.url.queryParameter("key")
+        if (response.code != 429 || backupKey.isBlank() || backupKey.startsWith("MY_") || usedKey == backupKey) {
+            return@Interceptor response
+        }
+        response.close()
+        chain.proceed(
+            request.newBuilder()
+                .url(request.url.newBuilder().setQueryParameter("key", backupKey).build())
+                .build()
+        )
+    }
+
     val geminiService: GeminiApiService by lazy {
         Retrofit.Builder()
             .baseUrl("https://generativelanguage.googleapis.com/")
-            .client(okHttpClient)
+            .client(okHttpClient.newBuilder().addInterceptor(geminiBackupKeyInterceptor).build())
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(GeminiApiService::class.java)
