@@ -173,6 +173,9 @@ private const val KEY_GREETED = "has_greeted_once"
 /** Set once setup finishes; after that the app never shows sign-in again. */
 private const val KEY_PROFILE_READY = "profile_ready"
 
+private const val KEY_VOICE_PROMPTED = "voice_data_prompted"
+private const val GOOGLE_TTS_ENGINE = "com.google.android.tts"
+
 private const val KEY_PREFS_VERSION = "prefs_version"
 
 /**
@@ -766,7 +769,33 @@ class DrishtiViewModel(
         }
     }
 
+    /** Set once we have switched to Google's engine, so we never loop re-creating it. */
+    private var triedGoogleTtsEngine = false
+
+    /**
+     * Other phones' default engine (Samsung, Vivo, Xiaomi TTS...) often fails to start or
+     * has no Marathi/Hindi voice, and the app is then silent. Google's engine has both.
+     * Returns true when a new engine is starting (onInit will be called again).
+     */
+    private fun switchToGoogleTtsEngine(): Boolean {
+        if (triedGoogleTtsEngine || tts?.defaultEngine == GOOGLE_TTS_ENGINE) return false
+        val installed = try {
+            context.packageManager.getPackageInfo(GOOGLE_TTS_ENGINE, 0); true
+        } catch (e: Exception) { false }
+        if (!installed) return false
+        triedGoogleTtsEngine = true
+        Log.w("DrishtiViewModel", "Switching TTS to $GOOGLE_TTS_ENGINE (default engine=${tts?.defaultEngine})")
+        tts?.shutdown()
+        tts = TextToSpeech(context, this, GOOGLE_TTS_ENGINE)
+        return true
+    }
+
     override fun onInit(status: Int) {
+        if (status != TextToSpeech.SUCCESS && switchToGoogleTtsEngine()) return
+        if (status == TextToSpeech.SUCCESS &&
+            !isVoiceUsable(Locale("mr", "IN")) && !isVoiceUsable(Locale("hi", "IN")) &&
+            switchToGoogleTtsEngine()
+        ) return
         if (status == TextToSpeech.SUCCESS) {
             val indianLocale = Locale("en", "IN")
             val result = tts?.setLanguage(indianLocale)
@@ -791,6 +820,12 @@ class DrishtiViewModel(
                     "No Marathi voice installed - Marathi text would be spoken by a fallback " +
                         "(usually Hindi) voice. Prompting for the voice data."
                 )
+                // With no Devanagari voice at all, Marathi text is spoken as silence. Open the
+                // voice download screen once so a helper can install it.
+                if (!isVoiceUsable(Locale("hi", "IN")) && !prefs.getBoolean(KEY_VOICE_PROMPTED, false)) {
+                    prefs.edit().putBoolean(KEY_VOICE_PROMPTED, true).apply()
+                    promptInstallVoiceData()
+                }
             }
 
             tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
@@ -1070,6 +1105,10 @@ class DrishtiViewModel(
                     // one is missing, so check first rather than trusting it.
                     if (isVoiceUsable(target)) {
                         tts?.setLanguage(target)
+                    } else if (target.language == "mr" && isVoiceUsable(Locale("hi", "IN"))) {
+                        // No Marathi voice: a Hindi voice reads Devanagari fine. Without this,
+                        // setLanguage fails, the English voice stays, and Marathi is silent.
+                        tts?.setLanguage(Locale("hi", "IN"))
                     } else {
                         val substitute = tts?.setLanguage(target)
                         Log.w(
