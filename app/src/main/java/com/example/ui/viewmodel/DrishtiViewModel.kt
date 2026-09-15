@@ -20,6 +20,7 @@ import com.example.data.api.OsrmStep
 import com.example.data.api.GroqMessage
 import com.example.data.database.*
 import com.example.data.repository.DrishtiRepository
+import com.example.util.FallDetector
 import com.example.util.ObstacleDetector
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -93,6 +94,58 @@ private val DISTRESS_PATTERNS = listOf(
  * True only for a genuine call for help. A false positive here wakes a guardian and
  * reports a real emergency, so the word "help" alone is deliberately not enough.
  */
+/**
+ * English loanwords as the Marathi recogniser actually writes them, mapped back to Latin.
+ *
+ * Why this exists: commands are matched by substring, and most matchers were written in
+ * Latin ("camera open", "live navigation") or in pure Marathi ("कॅमेरा उघड"). Real speech
+ * on the phone comes back from the Marathi recogniser as Devanagari with English words
+ * transliterated - "कॅमेरा ओपन कर आणि सांग पुढे काय आहे". That matched neither, fell
+ * through to the conversational AI, and a blind user was told to look for himself.
+ * Testing over adb never caught it because injected text was Latin.
+ */
+private val LOANWORDS = listOf(
+    "ओपन" to "open", "क्लोज" to "close", "स्टार्ट" to "start", "स्टॉप" to "stop",
+    "कॅमेरा" to "camera", "कॅमरा" to "camera", "कैमरा" to "camera", "केमेरा" to "camera",
+    "लाईव्ह" to "live", "लाइव्ह" to "live", "लाइव" to "live", "लाईव" to "live",
+    "नेव्हिगेशन" to "navigation", "नेविगेशन" to "navigation", "नॅव्हिगेशन" to "navigation",
+    "नेव्हिगेट" to "navigate", "नेविगेट" to "navigate",
+    "स्कॅन" to "scan", "स्कैन" to "scan",
+    "सुरू" to "suru", "सुरु" to "suru", "चालू" to "chalu",
+    "एसओएस" to "sos", "हेल्प" to "help", "इमर्जन्सी" to "emergency",
+    "कॅन्सल" to "cancel", "कॅन्सेल" to "cancel", "रिपीट" to "repeat",
+    "लोकेशन" to "location", "सेटिंग्ज" to "settings", "सेटिंग" to "settings",
+    "होम" to "home", "टाईम" to "time", "टाइम" to "time", "डेट" to "date",
+    "जीपीएस" to "gps", "बॅटरी" to "battery"
+)
+
+/**
+ * The text every command matcher sees: the lowercased utterance, followed by the same
+ * utterance with loanwords transliterated. Keeping the original means pure-Marathi
+ * matchers ("कॅमेरा उघड") still hit; appending the Latin form means English matchers do too.
+ */
+fun normalizeSpokenCommand(text: String): String {
+    val lower = text.lowercase().trim()
+    var latin = lower
+    for ((dev, lat) in LOANWORDS) latin = latin.replace(dev, lat)
+    return if (latin == lower) lower else "$lower | $latin"
+}
+
+/**
+ * A question about what is around the user. These must open the camera - never reach the
+ * conversational AI, which cannot see and would ask a blind person to describe the scene.
+ */
+fun isVisualQuestion(command: String): Boolean {
+    val c = command.lowercase()
+    return listOf(
+        "पुढे काय", "समोर काय", "काय आहे समोर", "काय आहे पुढे", "काय दिसत", "काय दिसतं",
+        "बघ काय", "बघून सांग", "इथे काय आहे", "आजूबाजूला काय",
+        "सामने क्या", "क्या दिख", "आगे क्या",
+        "what is in front", "what's in front", "whats in front", "what do you see",
+        "what can you see", "describe the scene", "describe what", "look around", "what is around", "what's around"
+    ).any { c.contains(it) }
+}
+
 /**
  * Shared by indoor, outdoor and proactive scanning: did the vision layer report a clear
  * path rather than a hazard?
@@ -213,9 +266,9 @@ class DrishtiViewModel(
     var detectedColorName by mutableStateOf("")
 
     // Fall Detection States
-    private var lastFreefallTime: Long = 0
-    private var lastImpactTime: Long = 0
     private var fallCountdownJob: kotlinx.coroutines.Job? = null
+    private val fallDetector = FallDetector()
+    private var accelReadings = 0L
     var fallCountdownSecondsRemaining by mutableStateOf(0)
         private set
 
@@ -612,8 +665,12 @@ class DrishtiViewModel(
         // Fall/drop detection must run whenever the app is alive, not only during walk mode.
         // It was previously registered only by proactive scanning, so a sudden drop while
         // the phone sat idle - the exact case the SOS is for - was never detected.
+        // SENSOR_DELAY_GAME (~50Hz), not NORMAL (~5Hz): the impact of a phone hitting the
+        // floor lasts 10-40ms and was almost never sampled at 5Hz, so real drops went
+        // undetected. This is the ONLY accelerometer registration - see
+        // unregisterProactiveMotionSensor for why walk mode must not add or remove one.
         accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
         }
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -2295,6 +2352,11 @@ class DrishtiViewModel(
             Always speak in a highly conversational, informal, warm slang/colloquial buddy tone (not formal or robotic). Do NOT say things like "As an AI", "I am a language model", or "How can I assist you today". Just speak like a human friend who is right next to the user.
             $langInstruction
             $genderInstruction
+            THE USER IS BLIND. NEVER ask the user to look at, see, read or describe anything, and NEVER
+            say you cannot see or have no camera. Drishti DOES have a camera and real features: if the user
+            asks what is around or in front of them, tell them to say "कॅमेरा उघड"; for walking guidance
+            "थेट मार्गदर्शन"; to go somewhere "मला [ठिकाण] पर्यंत पोहोचव"; in danger "मदत करा".
+            Never pretend to know their surroundings from this chat.
             CRITICAL CRITERIA:
             1. Keep responses under 30 words — extremely concise and casual.
             2. Omit minor details, colors, or surfaces unless explicitly asked.
@@ -2465,7 +2527,8 @@ class DrishtiViewModel(
     }
 
     fun processSpeachTextCommand(recognizedText: String) {
-        val command = recognizedText.lowercase()
+        Log.i("DrishtiHeard", "recognised: \"$recognizedText\"")
+        val command = normalizeSpokenCommand(recognizedText)
             .replace("amity academy of engineering", "mit academy of engineering")
             .replace("amity college of engineering", "mit academy of engineering")
             .replace("amity academy", "mit academy")
@@ -2569,7 +2632,7 @@ class DrishtiViewModel(
 
             // ---- The four explicit commands -------------------------------------------
             // 1) open camera + one-time full scan
-            val isCameraScan = isOpenCamera || isDescribeScene ||
+            val isCameraScan = isOpenCamera || isDescribeScene || isVisualQuestion(command) ||
                 command.contains("camera open") || command.contains("open camera") ||
                 command.contains("camera kr") || command.contains("camera kar") ||
                 command.contains("\u0915\u0945\u092e\u0947\u0930\u093e \u0909\u0918\u0921") ||   // कॅमेरा उघड
@@ -3751,7 +3814,8 @@ class DrishtiViewModel(
 
     private fun registerProactiveMotionSensor() {
         if (accelerometerRegisteredForProactive || accelerometer == null) return
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+        // The listener is already registered at init for fall detection; walk mode only needs
+        // its readings routed to updateWalkingState.
         accelerometerRegisteredForProactive = true
         movementEnergies.clear()
         lastAccelMagnitude = 0f
@@ -3760,7 +3824,10 @@ class DrishtiViewModel(
 
     private fun unregisterProactiveMotionSensor() {
         if (!accelerometerRegisteredForProactive) return
-        sensorManager.unregisterListener(this, accelerometer)
+        // Deliberately NOT unregisterListener(this, accelerometer). Android keeps a single
+        // registration per listener+sensor, so that call also removed fall detection's -
+        // after stopping walk mode or navigation once, drop-SOS was silently dead until the
+        // app restarted.
         accelerometerRegisteredForProactive = false
         movementEnergies.clear()
         lastAccelMagnitude = 0f
@@ -3997,23 +4064,11 @@ class DrishtiViewModel(
                 }
                 val gForce = sqrt((x * x + y * y + z * z).toDouble()) / 9.80665
 
-                val currentTime = System.currentTimeMillis()
-
-                // 1. Detect Freefall (< 0.3 G)
-                if (gForce < 0.3) {
-                    lastFreefallTime = currentTime
-                }
-
-                // 2. Detect Impact (> 2.8 G) within 350ms of freefall
-                if (gForce > 2.8 && (currentTime - lastFreefallTime < 350)) {
-                    lastImpactTime = currentTime
-                }
-
-                // 3. Detect Rest (approx 1.0 G, vector between 0.85 and 1.15)
-                // If rest is stable for 1.2s after impact, confirm fall!
-                if (lastImpactTime > 0 && (currentTime - lastImpactTime > 1200) && gForce > 0.85 && gForce < 1.15) {
-                    lastImpactTime = 0
-                    lastFreefallTime = 0
+                // Heartbeat, ~every 10s at 50Hz: shows whether readings keep arriving with the
+                // screen off. Silence here means drops cannot be detected at all.
+                if (++accelReadings % 500 == 0L) Log.d("DrishtiFall", "accel alive: $accelReadings readings")
+                if (fallDetector.onReading(gForce, System.currentTimeMillis())) {
+                    Log.w("DrishtiFall", "drop detected - starting SOS countdown")
                     triggerFallCountdownAlert()
                 }
             }

@@ -204,6 +204,16 @@ fun DashboardScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundDark)
+            // The whole screen is the talk button. A blind user cannot aim at a 195dp orb -
+            // taps that landed just outside its square were silently ignored. No ripple: a
+            // grey flash is meaningless to this user, and the mic tone + vibration already
+            // confirm the tap. Child controls (the settings gear) still get their own taps.
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClickLabel = "Talk to Drishti",
+                onClick = onMicTriggered
+            )
             .statusBarsPadding()
             // No corner glows: they were washing the pure-black ground up to grey-teal.
             // Pitch black is the point of this theme; the only glow is the orb itself.
@@ -574,7 +584,8 @@ fun MockupVoiceAssistantScreen(
                     scaleX = animatedScale
                     scaleY = animatedScale
                 }
-                .clickable(onClick = onMicTriggered)
+                // No clickable of its own: the full-screen parent handles the tap, and a
+                // separate target here drew the grey square and shrank the tappable area.
                 .testTag("voice_orb_tap_target"),
             contentAlignment = Alignment.Center
         ) {

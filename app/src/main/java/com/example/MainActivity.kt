@@ -610,14 +610,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Bottom Tab Items definition
-                val navTabs = listOf(
-                    NavTabItem("dashboard", Icons.Default.Mic, "मुख्य"),
-                    NavTabItem("vision", Icons.Default.PhotoCamera, "कॅमेरा"),
-                    NavTabItem("navigation", Icons.Default.DirectionsWalk, "नकाशा"),
-                    NavTabItem("sos", Icons.Default.Shield, "मदत"),
-                    NavTabItem("settings", Icons.Default.Settings, "सेटिंग")
-                )
 
                 // Automatic Permanent Login Guards
                 LaunchedEffect(userProfile, currentRoute) {
@@ -640,7 +632,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     floatingActionButton = {
                         // Floating neon speak button on all core screens so users can easily voice command
-                        val isCoreRoute = currentRoute in listOf("dashboard", "vision", "navigation", "sos", "settings")
+                        // Not on the dashboard: there the entire screen is the talk button.
+                        val isCoreRoute = currentRoute in listOf("vision", "navigation", "sos", "settings")
                         if (isCoreRoute) {
                             FloatingActionButton(
                                 onClick = triggerSpeechCapture,
@@ -656,61 +649,6 @@ class MainActivity : ComponentActivity() {
                                     contentDescription = "Trigger Speech Interpreter Voice Control",
                                     modifier = Modifier.size(28.dp)
                                 )
-                            }
-                        }
-                    },
-                    bottomBar = {
-                        // Display high-contrast Bottom navbar only on inner core frames
-                        val isCoreRoute = currentRoute in listOf("dashboard", "vision", "navigation", "sos", "settings")
-                        if (isCoreRoute) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.Transparent)
-                                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-                            ) {
-                                NavigationBar(
-                                    // Transparent so the glass layer below shows through;
-                                    // NavigationBar would otherwise paint over it.
-                                    containerColor = Color.Transparent,
-                                    tonalElevation = 0.dp,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .background(BackgroundDark, RoundedCornerShape(28.dp)).hairlineSurface(RoundedCornerShape(28.dp))
-                                ) {
-                                    navTabs.forEach { tab ->
-                                        val isSelected = currentRoute == tab.route
-                                        NavigationBarItem(
-                                            selected = isSelected,
-                                            onClick = {
-                                                dViewModel.stopSpeaking()
-                                                navController.navigate(tab.route) {
-                                                    popUpTo("dashboard") { saveState = true }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
-                                            },
-                                            icon = {
-                                                Icon(
-                                                    imageVector = tab.icon,
-                                                    contentDescription = tab.label,
-                                                    tint = if (isSelected) Color.Black else Color.White
-                                                )
-                                            },
-                                            label = {
-                                                Text(
-                                                    text = tab.label,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
-                                                    color = if (isSelected) AccentPrimary else TextSecondaryDark
-                                                )
-                                            },
-                                            colors = NavigationBarItemDefaults.colors(
-                                                indicatorColor = AccentPrimary
-                                            )
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -849,8 +787,3 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class NavTabItem(
-    val route: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val label: String
-)
