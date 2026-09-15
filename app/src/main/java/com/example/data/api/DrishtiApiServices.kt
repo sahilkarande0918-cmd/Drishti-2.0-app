@@ -97,23 +97,28 @@ object DrishtiApiClient {
         .build()
 
     /**
-     * Backup Gemini key (second priority). When the first key answers 429 (quota used up),
-     * the same request is repeated once with the backup key. Nothing else changes.
+     * Backup Gemini keys, in priority order. When a key answers 429 (quota used up), the same
+     * request is repeated with the next backup key. Nothing else changes.
      */
+    private val geminiBackupKeys = listOf(
+        com.example.BuildConfig.GEMINI_API_KEY_2,
+        com.example.BuildConfig.GEMINI_API_KEY_3
+    ).filter { it.isNotBlank() && !it.startsWith("MY_") }
+
     private val geminiBackupKeyInterceptor = Interceptor { chain ->
         val request = chain.request()
-        val response = chain.proceed(request)
-        val backupKey = com.example.BuildConfig.GEMINI_API_KEY_2
-        val usedKey = request.url.queryParameter("key")
-        if (response.code != 429 || backupKey.isBlank() || backupKey.startsWith("MY_") || usedKey == backupKey) {
-            return@Interceptor response
+        var response = chain.proceed(request)
+        for (backupKey in geminiBackupKeys) {
+            if (response.code != 429) break
+            if (request.url.queryParameter("key") == backupKey) continue
+            response.close()
+            response = chain.proceed(
+                request.newBuilder()
+                    .url(request.url.newBuilder().setQueryParameter("key", backupKey).build())
+                    .build()
+            )
         }
-        response.close()
-        chain.proceed(
-            request.newBuilder()
-                .url(request.url.newBuilder().setQueryParameter("key", backupKey).build())
-                .build()
-        )
+        response
     }
 
     val geminiService: GeminiApiService by lazy {
