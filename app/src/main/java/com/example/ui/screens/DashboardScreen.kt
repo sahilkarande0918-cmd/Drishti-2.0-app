@@ -218,6 +218,19 @@ fun DashboardScreen(
             // No corner glows: they were washing the pure-black ground up to grey-teal.
             // Pitch black is the point of this theme; the only glow is the orb itself.
     ) {
+        // Why the voice isn't working on this phone (engine, Marathi voice, recogniser,
+        // internet), in plain words a sighted helper can read or screenshot.
+        viewModel.voiceIssue?.let { issue ->
+            Text(
+                text = "⚠ $issue",
+                color = Color(0xFFFFB300),
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 24.dp)
+            )
+        }
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally

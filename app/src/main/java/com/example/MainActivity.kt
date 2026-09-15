@@ -216,7 +216,9 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO
+                Manifest.permission.RECORD_AUDIO,
+                // SOS text message to the guardian: works offline, no email activation needed.
+                Manifest.permission.SEND_SMS
             )
 
             var forceRecreateRecognizer by remember { mutableStateOf(0) }
@@ -312,6 +314,10 @@ class MainActivity : ComponentActivity() {
             // recogniser, which is what the fallback path ended up using anyway.
             var preferSystemRecognizer by remember { mutableStateOf(false) }
 
+            // Many phones' recognisers can't do Marathi (error 12/13) and just failed forever,
+            // silently. Step down: Marathi -> Hindi (same script) -> the phone's own language.
+            var recognizerLanguageStep by remember { mutableIntStateOf(0) }
+
             fun startRecognizerSession(useGoogleService: Boolean) {
                 if (!dViewModel.isMicOn) {
                     Log.d("MainActivity", "startRecognizerSession: ignored, mic latch is off")
@@ -324,8 +330,15 @@ class MainActivity : ComponentActivity() {
                 }
                 activeRecognizer = null
 
+                if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                    dViewModel.voiceIssue = "No voice recognition on this phone. Install or enable the Google app from Play Store."
+                    Log.e("MainActivity", "No speech recognition service available on this device")
+                }
+                val googleAppInstalled = try {
+                    context.packageManager.getPackageInfo("com.google.android.googlequicksearchbox", 0); true
+                } catch (e: Exception) { false }
                 try {
-                    val newRecognizer = if (useGoogleService && SpeechRecognizer.isRecognitionAvailable(context)) {
+                    val newRecognizer = if (useGoogleService && googleAppInstalled && SpeechRecognizer.isRecognitionAvailable(context)) {
                         try {
                             val comp = android.content.ComponentName(
                                 "com.google.android.googlequicksearchbox",
@@ -381,6 +394,19 @@ class MainActivity : ComponentActivity() {
                             }
                             Log.e("MainActivity", "SpeechRecognizer onError ($error): $message")
 
+                            when (error) {
+                                // 12 = language not supported, 13 = language unavailable
+                                12, 13 -> if (recognizerLanguageStep < 2) {
+                                    recognizerLanguageStep++
+                                    Log.w("MainActivity", "Recogniser can't do this language, stepping down to $recognizerLanguageStep")
+                                }
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                                    dViewModel.voiceIssue = "Voice input blocked: allow Microphone permission for the Google app " +
+                                        "(Settings > Apps > Google > Permissions)."
+                                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
+                                    dViewModel.voiceIssue = "Voice input needs internet. Turn on mobile data or Wi-Fi."
+                            }
+
                             try {
                                 newRecognizer.destroy()
                             } catch (e: Exception) {}
@@ -403,7 +429,11 @@ class MainActivity : ComponentActivity() {
                             }
 
                             when {
-                                useGoogleService && (error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS || error == SpeechRecognizer.ERROR_CLIENT) -> {
+                                // Any real failure of the hard-coded Google service (missing on
+                                // this phone, different service name, disconnected) retries on the
+                                // phone's own recogniser instead of looping on the broken one.
+                                useGoogleService && error != SpeechRecognizer.ERROR_NO_MATCH &&
+                                    error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                                     Log.w("MainActivity", "Google voice service failed with error $error, retrying with system default recognizer")
                                     (context as? android.app.Activity)?.runOnUiThread {
                                         startRecognizerSession(false)
@@ -441,6 +471,7 @@ class MainActivity : ComponentActivity() {
                             val speechText = matches?.firstOrNull()?.trim()
                             // A clean result means the recogniser is healthy again.
                             micRestartDelayMs = MIC_RESTART_MIN_MS
+                            if (dViewModel.voiceIssue?.startsWith("Voice input") == true) dViewModel.voiceIssue = null
                             if (!speechText.isNullOrBlank()) {
                                 dViewModel.stopSpeaking()
                                 dViewModel.processSpeachTextCommand(speechText)
@@ -465,11 +496,17 @@ class MainActivity : ComponentActivity() {
                     // Listen in whatever language Drishti is currently speaking — Marathi by
                     // default. This was pinned to en-IN, so Marathi speech was being decoded
                     // by an English model and came back as garbage.
-                    val speechLanguage = dViewModel.ttsLanguage
+                    val speechLanguage = when {
+                        recognizerLanguageStep == 0 || dViewModel.ttsLanguage == "en-IN" -> dViewModel.ttsLanguage
+                        recognizerLanguageStep == 1 -> "hi-IN"
+                        else -> null // phone's default recognition language
+                    }
                     val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguage)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguage)
+                        if (speechLanguage != null) {
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguage)
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, speechLanguage)
+                        }
                         // Accept English too, so an English word or command still lands while
                         // Marathi stays primary.
                         putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("en-IN"))

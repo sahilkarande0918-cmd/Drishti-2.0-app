@@ -570,6 +570,12 @@ class DrishtiViewModel(
         micAmplitude = value
     }
 
+    /** Plain-language reason voice input/output is not working on this phone; null when fine. */
+    var voiceIssue by mutableStateOf<String?>(null)
+
+    /** Completes once the TTS engine is usable (or has definitively failed). */
+    private val ttsReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+
     /** False when the engine has no real Marathi voice and would substitute another one. */
     var marathiVoiceAvailable by mutableStateOf(true)
         private set
@@ -846,6 +852,11 @@ class DrishtiViewModel(
             })
 
             isTtsInitialized = true
+            ttsReady.complete(Unit)
+            if (!isVoiceUsable(Locale("mr", "IN")) && !isVoiceUsable(Locale("hi", "IN"))) {
+                voiceIssue = "No Marathi voice on this phone. Install \"Speech Services by Google\" " +
+                    "and download Marathi in Settings > Text-to-speech."
+            }
             // Introduce Drishti once, on the very first launch only. Hearing the same
             // greeting on every app open is noise to someone who relies on audio.
             viewModelScope.launch {
@@ -858,6 +869,9 @@ class DrishtiViewModel(
             }
         } else {
             Log.e("DrishtiViewModel", "TTS Initialization failed!")
+            voiceIssue = "Voice engine failed to start. Install \"Speech Services by Google\" from Play Store " +
+                "and set it in Settings > Text-to-speech."
+            ttsReady.complete(Unit)
         }
     }
 
@@ -992,8 +1006,11 @@ class DrishtiViewModel(
                 // the old check fired on any stray latin character, adding a full extra
                 // LLM call before nearly every spoken reply.
                 val translatedText =
-                    if (ttsLanguage != "en-IN" && needsTranslation(text)) translateText(text, ttsLanguage)
-                    else text
+                    if (ttsLanguage != "en-IN" && needsTranslation(text)) {
+                        // A slow network must not hold the voice (and the mic, which waits
+                        // for speech to finish) hostage; speak the original after 4s.
+                        kotlinx.coroutines.withTimeoutOrNull(4_000L) { translateText(text, ttsLanguage) } ?: text
+                    } else text
 
                 // Split into sentences so the first one starts playing immediately instead
                 // of waiting for the whole paragraph.
@@ -1090,6 +1107,10 @@ class DrishtiViewModel(
                     }
                 }
             }
+
+            // On a fresh install the engine takes a few seconds to bind. Speech asked for
+            // before then (the first words on opening the app) used to be dropped silently.
+            if (!isTtsInitialized) kotlinx.coroutines.withTimeoutOrNull(8_000L) { ttsReady.await() }
 
             // Use high-quality offline Android (Google/Gemini) TTS voice for English / Fallback
             if (isTtsInitialized && tts != null) {
@@ -4370,9 +4391,12 @@ class DrishtiViewModel(
             val lng = location?.longitude ?: currentLongitude
             val address = repository.reverseGeocode(lat, lng)
             val guardian = guardianProfile.value
+            if (guardian != null && guardian.phone.isNotBlank()) {
+                sendSosSms(guardian.phone, address, lat, lng)
+            }
             if (guardian != null && guardian.email.isNotBlank()) {
                 sendSosemail(guardian.email, guardian.name, address, lat, lng)
-            } else {
+            } else if (guardian == null || guardian.phone.isBlank()) {
                 speak("No guardian email configured for SOS alerts.", SpeechPriority.EMERGENCY)
             }
         }
@@ -4659,6 +4683,35 @@ class DrishtiViewModel(
                 Math.sin(dLon / 2) * Math.sin(dLon / 2)
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         return r * c
+    }
+
+    /**
+     * SOS by text message. Email alone failed on new installs: FormSubmit delivers nothing
+     * until the guardian clicks an activation link, and it needs internet. SMS needs neither.
+     */
+    private fun sendSosSms(phone: String, address: String, lat: Double, lng: Double) {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.SEND_SMS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            Log.w("DrishtiViewModel", "SOS SMS skipped: SEND_SMS permission not granted")
+            return
+        }
+        try {
+            val sms = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                context.getSystemService(android.telephony.SmsManager::class.java)
+            } else {
+                @Suppress("DEPRECATION") android.telephony.SmsManager.getDefault()
+            }
+            val text = "EMERGENCY SOS from ${displayName()} (Drishti app). Near: $address. " +
+                "Location: https://maps.google.com/?q=$lat,$lng"
+            val number = phone.filter { it.isDigit() || it == '+' }
+            sms.sendMultipartTextMessage(number, null, sms.divideMessage(text), null, null)
+            Log.i("DrishtiViewModel", "SOS SMS sent to guardian")
+            speak(phrase("Emergency text message sent to your guardian.", "आपके गार्जियन को इमरजेंसी मैसेज भेजा गया।", "तुझ्या पालकांना इमर्जन्सी मेसेज पाठवला."), SpeechPriority.EMERGENCY, bypassCooldown = true)
+        } catch (e: Exception) {
+            Log.e("DrishtiViewModel", "SOS SMS failed", e)
+        }
     }
 
     fun sendSosemail(guardianEmail: String, guardianName: String, address: String, lat: Double, lng: Double) {
