@@ -170,6 +170,9 @@ fun isEmergencyPhrase(command: String): Boolean {
 
 private const val KEY_GREETED = "has_greeted_once"
 
+/** Set once setup finishes; after that the app never shows sign-in again. */
+private const val KEY_PROFILE_READY = "profile_ready"
+
 private const val KEY_PREFS_VERSION = "prefs_version"
 
 /**
@@ -662,6 +665,10 @@ class DrishtiViewModel(
             .ifBlank { DEFAULT_LANGUAGE }
         tts = TextToSpeech(context, this)
 
+        viewModelScope.launch {
+            userProfile.filterNotNull().firstOrNull()?.let { if (it.onboardingCompleted) markProfileReady() }
+        }
+
         // Fall/drop detection must run whenever the app is alive, not only during walk mode.
         // It was previously registered only by proactive scanning, so a sudden drop while
         // the phone sat idle - the exact case the SOS is for - was never detected.
@@ -1005,7 +1012,7 @@ class DrishtiViewModel(
         isSpeaking = true
         try {
             var textToSpeak = sentence
-            val isMale = isUserMale(userProfile.value?.name ?: "Sahil")
+            val isMale = isUserMale(userProfile.value?.name.orEmpty())
             textToSpeak = injectFriendlyTag(textToSpeak, ttsLanguage, isMale)
 
             // Use Pooja voice (Sarvam API) ONLY for Hindi and Marathi
@@ -1129,7 +1136,7 @@ class DrishtiViewModel(
     }
 
     /** Resolved gender for the current user, honoring the manual override. */
-    private fun isCurrentUserMale(): Boolean = isUserMale(userProfile.value?.name ?: "Sahil")
+    private fun isCurrentUserMale(): Boolean = isUserMale(userProfile.value?.name.orEmpty())
 
     /** "male"/"female" if explicitly overridden, else null (let name-based detection decide). */
     private fun resolvedGenderOrNull(): String? = userGenderOverride.takeIf { it == "male" || it == "female" }
@@ -1947,6 +1954,23 @@ class DrishtiViewModel(
     // ONBOARDING & SAFETY PERSISTENCE
     // ==========================================
 
+    /**
+     * What Drishti calls the user: the name they gave during setup.
+     *
+     * Every fallback here used to be the developer's own name, so anyone who installed the
+     * APK without a saved profile was addressed as "Sahil". An unknown name now becomes a
+     * friendly neutral word instead.
+     */
+    fun displayName(): String = userProfile.value?.name?.trim()?.takeIf { it.isNotBlank() }
+        ?: phrase("friend", "दोस्त", "मित्रा")
+
+    /** True once setup has finished on this phone; decides whether sign-in is shown at all. */
+    fun isProfileReady(): Boolean = prefs.getBoolean(KEY_PROFILE_READY, false)
+
+    private fun markProfileReady() {
+        prefs.edit().putBoolean(KEY_PROFILE_READY, true).apply()
+    }
+
     fun completeGoogleLogin(email: String, name: String, idToken: String, onComplete: (onboardingCompleted: Boolean) -> Unit) {
         orbState = OrbState.PROCESSING
         speak("Establishing secure Google credentials...")
@@ -1960,6 +1984,7 @@ class DrishtiViewModel(
                     viewModelScope.launch {
                         val existingUser = repository.fetchUserFromFirestore(finalEmail)
                         if (existingUser != null && existingUser.onboardingCompleted) {
+                            markProfileReady()
                             repository.restoreProfileFromFirestore(finalEmail, existingUser)
                             triggerVibration(50L)
                             speak("Welcome back, ${existingUser.name}. Restored your profile and settings from the cloud.")
@@ -1989,6 +2014,7 @@ class DrishtiViewModel(
                 ?: FirebaseAuth.getInstance().currentUser?.email
                 ?: "").trim().lowercase()
             repository.saveUser(name, email = currentEmail, completed = true)
+            markProfileReady()
             repository.saveGuardian(guardianName, guardianEmail, guardianPhone)
             speak("Onboarding complete. Welcome to Drishti, $name. Guardian configured as $guardianName. An activation request was sent to their email.")
             
@@ -2232,7 +2258,7 @@ class DrishtiViewModel(
                 "the gate and entrance area"
             }
 
-            val userName = userProfile.value?.name ?: "Sahil"
+            val userName = displayName()
             speak("$userName, you are approaching ${place.name}. I can see the $mergedDescription.", SpeechPriority.NAVIGATION)
             orbState = OrbState.IDLE
         }
@@ -2328,7 +2354,7 @@ class DrishtiViewModel(
     private var commandJob: Job? = null
 
     private fun getGroqHistory(): List<GroqMessage> {
-        val userName = userProfile.value?.name ?: "Sahil"
+        val userName = displayName()
         val langInstruction = when (ttsLanguage) {
             "hi-IN" -> "IMPORTANT: Respond ONLY in spoken-slang Hindi using Hindi Devanagari script. Strictly do NOT mix English words in Hindi response. Use a friendly female tone with female-gendered verb endings like 'कर रही हूँ' instead of 'कर रहा हूँ'. DO NOT use 'bhai' or 'dost'."
             "mr-IN" -> "IMPORTANT: Respond ONLY in spoken-slang Marathi using Marathi Devanagari script. Strictly do NOT mix English words in Marathi response. Use a friendly female tone with female-gendered verb endings like 'करतेय' or 'करतीये' instead of 'करतोय'. DO NOT use 'bhai' or 'dost'."
@@ -2435,7 +2461,7 @@ class DrishtiViewModel(
         val minute = cal.get(java.util.Calendar.MINUTE)
         var hour12 = hour24 % 12
         if (hour12 == 0) hour12 = 12
-        val name = userProfile.value?.name ?: "Sahil"
+        val name = displayName()
         return when (localLang()) {
             "hi-IN" -> {
                 val period = when { hour24 < 12 -> "सुबह"; hour24 < 16 -> "दोपहर"; hour24 < 20 -> "शाम"; else -> "रात" }
@@ -2518,7 +2544,7 @@ class DrishtiViewModel(
     }
 
     private fun buildLocalCapabilitiesResponse(): String {
-        val name = userProfile.value?.name ?: "Sahil"
+        val name = displayName()
         return when (localLang()) {
             "hi-IN" -> "$name, मैं रास्ता दिखा सकती हूँ, आसपास का हाल बता सकती हूँ, लिखा हुआ और बोर्ड पढ़ सकती हूँ, नोट पहचान सकती हूँ, और इमरजेंसी में एसओएस भेज सकती हूँ। और आपसे बातें भी कर सकती हूँ। बताओ क्या करूँ?"
             "mr-IN" -> "$name, मी रस्ता दाखवू शकते, आजूबाजूचं वर्णन करू शकते, मजकूर आणि पाट्या वाचू शकते, नोटा ओळखू शकते, आणि इमर्जन्सीमध्ये एसओएस पाठवू शकते. आणि तुझ्याशी गप्पाही मारू शकते. सांग काय करू?"

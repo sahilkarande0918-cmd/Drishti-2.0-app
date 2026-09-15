@@ -655,7 +655,9 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     NavHost(
                         navController = navController,
-                        startDestination = "google_login", // Starts directly on requested Google Login screen
+                        // Decided from a flag saved on the phone, so it is known instantly. Waiting for the
+                        // profile to load meant sign-in was shown on every launch first.
+                        startDestination = if (dViewModel.isProfileReady()) "dashboard" else "google_login",
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = innerPadding.calculateTopPadding())
@@ -663,6 +665,11 @@ class MainActivity : ComponentActivity() {
                         composable("google_login") {
                             GoogleLoginScreen(
                                 webClientId = BuildConfig.GOOGLE_CLIENT_ID,
+                                onContinueWithoutSignIn = {
+                                    navController.navigate("onboarding") {
+                                        popUpTo("google_login") { inclusive = true }
+                                    }
+                                },
                                 onLoginCompleted = { email, name, idToken ->
                                     dViewModel.completeGoogleLogin(email, name, idToken) { onboardingCompleted ->
                                         val destination = if (onboardingCompleted) "dashboard" else "onboarding"

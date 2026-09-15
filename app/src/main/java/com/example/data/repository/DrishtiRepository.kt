@@ -430,7 +430,7 @@ class DrishtiRepository(
         bypassThrottle: Boolean = true
     ): String = withContext(Dispatchers.IO) {
         val currentUser = getUserOneShot()
-        val userName = currentUser?.name ?: "Sahil"
+        val userName = currentUser?.name?.takeIf { it.isNotBlank() } ?: "friend"
         val n = userName.trim().lowercase()
         val isMale = if (n.isEmpty()) true else {
             val femaleEndings = listOf("a", "i", "e", "u", "ya", "ti", "ta", "ka", "ni", "ri", "shree", "jyoti", "kumari", "devi")
@@ -595,7 +595,7 @@ class DrishtiRepository(
 
     suspend fun getGeminiTextResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {
         val currentUser = getUserOneShot()
-        val userName = currentUser?.name ?: "Sahil"
+        val userName = currentUser?.name?.takeIf { it.isNotBlank() } ?: "friend"
         val n = userName.trim().lowercase()
         val isMale = when (genderOverride) {
             "male" -> true
@@ -678,7 +678,7 @@ class DrishtiRepository(
 
     suspend fun getGroqResponse(prompt: String, conversationHistory: List<GroqMessage>, apiKey: String, genderOverride: String? = null): String = withContext(Dispatchers.IO) {
         val currentUser = getUserOneShot()
-        val userName = currentUser?.name ?: "Sahil"
+        val userName = currentUser?.name?.takeIf { it.isNotBlank() } ?: "friend"
         val n = userName.trim().lowercase()
         val isMale = when (genderOverride) {
             "male" -> true

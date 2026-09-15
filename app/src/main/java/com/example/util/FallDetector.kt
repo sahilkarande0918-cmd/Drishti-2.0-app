@@ -1,56 +1,105 @@
 package com.example.util
 
 /**
- * Recognises a phone drop from accelerometer magnitude: free fall, then a hard impact, then
- * the phone coming to rest.
+ * Recognises a real phone drop - slipping from the hand and hitting the ground - from
+ * accelerometer magnitude, and ignores quick handling movements.
  *
- * Pure logic with no Android types, so the exact sequence a real drop produces can be
- * replayed in a unit test - a physical drop cannot be scripted, and this code previously
- * failed in the field without anything having noticed.
+ * A genuine drop has a signature a jerk of the wrist cannot produce:
+ *  1. SUSTAINED free fall. Falling ~1m takes ~450ms; even a waist-height drop is ~350ms of
+ *     near-zero G. A flick or a sudden movement dips low for only tens of milliseconds.
+ *  2. A HARD impact straight after the fall ends.
+ *  3. The phone then LIES STILL for a sustained period, not just one calm reading.
  *
- * Needs the accelerometer at game rate (~50Hz). The impact spike of a phone hitting the floor
- * lasts roughly 10-40ms; at the normal ~5Hz rate it was almost never sampled, so a real drop
- * usually produced a free fall followed straight by "at rest" and no alert.
+ * The previous version fired on a single low reading, a 2.5G spike and a single "at rest"
+ * reading, so ordinary quick movements raised an SOS. Every stage now has a duration, and
+ * the stillness check requires the whole window to stay calm.
+ *
+ * Pure logic, no Android types, so traces can be replayed in FallDetectorTest.
+ * Expects ~50Hz readings (SENSOR_DELAY_GAME).
  */
 class FallDetector(
-    private val freeFallG: Double = 0.45,
-    private val impactG: Double = 2.5,
-    /** Longest gap between the last free-fall sample and the impact sample. */
-    private val impactWindowMs: Long = 600,
-    /** How long after impact the phone must read roughly 1G before we alert. */
-    private val restAfterImpactMs: Long = 1_000,
-    /** Give up waiting for rest after this long (phone kept moving = it was caught/picked up). */
-    private val restTimeoutMs: Long = 6_000
+    /** Below this is free fall. */
+    private val freeFallG: Double = 0.35,
+    /** Minimum continuous free fall. Quick movements never stay this low this long. */
+    private val minFreeFallMs: Long = 200,
+    /** Impact must reach this. */
+    private val impactG: Double = 3.0,
+    /** Impact must come this soon after the free fall ends. */
+    private val impactWithinMs: Long = 250,
+    /** Bouncing and settling allowed right after impact before stillness is judged. */
+    private val settleMs: Long = 400,
+    /** How long the phone must then lie still. */
+    private val stillMs: Long = 1_500,
+    /** Band that counts as lying still (1G at rest). */
+    private val stillLowG: Double = 0.85,
+    private val stillHighG: Double = 1.15,
+    /** Abandon a candidate that never settles (it was caught or picked up). */
+    private val candidateTimeoutMs: Long = 5_000
 ) {
+    private var freeFallStartedAt = 0L
     private var lastFreeFallAt = 0L
+    private var qualifyingFallEndedAt = 0L
+
     private var impactAt = 0L
+    private var stillSince = 0L
 
     /** Feed one reading. Returns true exactly once per detected drop. */
     fun onReading(gForce: Double, nowMs: Long): Boolean {
-        if (gForce < freeFallG) {
-            lastFreeFallAt = nowMs
-        }
-
-        if (gForce > impactG && lastFreeFallAt > 0 && nowMs - lastFreeFallAt <= impactWindowMs) {
-            impactAt = nowMs
-        }
-
+        // ---- Stage 3: waiting for the phone to lie still after an impact ----
         if (impactAt > 0) {
             val sinceImpact = nowMs - impactAt
-            if (sinceImpact > restTimeoutMs) {
+            if (sinceImpact > candidateTimeoutMs) {
                 reset()
                 return false
             }
-            if (sinceImpact >= restAfterImpactMs && gForce in 0.7..1.3) {
-                reset()
-                return true
+            if (sinceImpact < settleMs) return false
+
+            if (gForce in stillLowG..stillHighG) {
+                if (stillSince == 0L) stillSince = nowMs
+                if (nowMs - stillSince >= stillMs) {
+                    reset()
+                    return true
+                }
+            } else {
+                // Any movement restarts the stillness window - a phone being handled
+                // never stays calm for the full period.
+                stillSince = 0L
+            }
+            return false
+        }
+
+        // ---- Stage 1: measure how long free fall lasts ----
+        if (gForce < freeFallG) {
+            if (freeFallStartedAt == 0L) freeFallStartedAt = nowMs
+            lastFreeFallAt = nowMs
+            return false
+        }
+        if (freeFallStartedAt != 0L) {
+            // Free fall just ended; keep it only if it lasted long enough to be a drop.
+            if (lastFreeFallAt - freeFallStartedAt >= minFreeFallMs) {
+                qualifyingFallEndedAt = lastFreeFallAt
+            }
+            freeFallStartedAt = 0L
+        }
+
+        // ---- Stage 2: a hard impact right after a qualifying fall ----
+        if (qualifyingFallEndedAt > 0) {
+            if (nowMs - qualifyingFallEndedAt > impactWithinMs) {
+                qualifyingFallEndedAt = 0L
+            } else if (gForce >= impactG) {
+                impactAt = nowMs
+                stillSince = 0L
+                qualifyingFallEndedAt = 0L
             }
         }
         return false
     }
 
     fun reset() {
+        freeFallStartedAt = 0L
         lastFreeFallAt = 0L
+        qualifyingFallEndedAt = 0L
         impactAt = 0L
+        stillSince = 0L
     }
 }

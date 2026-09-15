@@ -37,6 +37,8 @@ import com.google.android.gms.common.api.ApiException
 fun GoogleLoginScreen(
     webClientId: String,
     onLoginCompleted: (email: String, name: String, idToken: String) -> Unit,
+    /** Continue without Google. A failed sign-in must never lock a blind user out. */
+    onContinueWithoutSignIn: () -> Unit,
     onSpeakMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -232,6 +234,31 @@ fun GoogleLoginScreen(
                             fontWeight = FontWeight.Black
                         )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Google Sign-In only works when this build's signing key is registered with
+                // Firebase, so on a shared APK it can fail with "Handshake error 10" - and
+                // there used to be no other way in. Setup works fine without an account.
+                OutlinedButton(
+                    onClick = {
+                        onSpeakMessage("Continuing without a Google account.")
+                        onContinueWithoutSignIn()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(72.dp)
+                        .testTag("continue_without_signin_btn"),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(2.dp, AccentPrimary)
+                ) {
+                    Text(
+                        text = "Continue without Google",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
             }
 
